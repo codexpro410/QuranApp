@@ -6,6 +6,10 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "quranapp",
+    "assetBundlePatterns": [
+      "assets/mushaf/*",
+      "assets/*.json"
+    ],
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -43,6 +47,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "60c6227d-22d4-4563-84fb-bc7994677168"
+      }
     }
   }
 }

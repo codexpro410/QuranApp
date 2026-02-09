@@ -1,0 +1,16 @@
+export default {
+  background: '#0D0D0D',
+  surface: '#1A1A1A',
+  surfaceLight: '#252525',
+  border: '#333333',
+  gold: '#D4AF37',
+  goldLight: '#F4D03F',
+  goldDark: '#996515',
+  cream: '#F5F5DC',
+  text: '#FFFFFF',
+  textSecondary: '#AAAAAA',
+  textMuted: '#666666',
+  overlay: 'rgba(0, 0, 0, 0.85)',
+  success: '#4CAF50',
+  error: '#F44336',
+};
