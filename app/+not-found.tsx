@@ -1,3 +1,3 @@
-export function redirectSystemPath() {
+export default function redirectSystemPath() {
   return '/';
 }

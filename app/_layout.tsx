@@ -5,6 +5,8 @@ import React, { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import { QuranProvider } from "@/contexts/QuranContext";
 import Colors from "@/constants/colors";
+import { AzkarProvider } from "@/contexts/azkarContext";
+import { SebhaProvider } from "@/contexts/SebhaContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -16,6 +18,7 @@ function RootLayoutNav() {
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: Colors.background },
+         animation: 'none',
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -40,6 +43,26 @@ function RootLayoutNav() {
           headerShown: false,
         }}
       />
+            <Stack.Screen
+        name="azkar"
+        options={{
+          presentation: "modal",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="azkar-detail"
+        options={{
+          headerShown: false,
+        }}
+      />
+            <Stack.Screen
+        name="sebha"
+        options={{
+          presentation: "modal",
+          headerShown: false,
+        }}
+      />
     </Stack>
   );
 }
@@ -52,8 +75,12 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <QuranProvider>
-        <StatusBar style="light" />
-        <RootLayoutNav />
+        <AzkarProvider>
+          <SebhaProvider>
+              <StatusBar style="light" />
+              <RootLayoutNav />
+            </SebhaProvider>
+        </AzkarProvider>
       </QuranProvider>
     </QueryClientProvider>
   );

@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams, Link } from "expo-router";
-import { Bookmark, BookOpen, Hash, ChevronLeft, ChevronRight } from "lucide-react-native";
+import { Bookmark, BookOpen, Hash, ChevronLeft, ChevronRight, Moon, Circle } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { mushafPages } from "@/data/mushafAssets";
 import { getSurahByPage, getJuzByPage, TOTAL_PAGES } from "@/data/quranData";
@@ -206,13 +206,13 @@ export default function MushafScreen() {
         pointerEvents={showControls ? 'auto' : 'none'}
       >
         <View style={styles.navigationRow}>
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={styles.navButton}
             onPress={() => navigatePage('prev')}
             disabled={displayPage >= TOTAL_PAGES}
           >
             <ChevronRight size={28} color={displayPage >= TOTAL_PAGES ? Colors.textMuted : Colors.gold} />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           <View style={styles.actionButtons}>
             <TouchableOpacity
@@ -255,15 +255,32 @@ export default function MushafScreen() {
   <Bookmark size={22} color={Colors.text} />
   <Text style={styles.actionText}>العلامات</Text>
 </TouchableOpacity>
+<TouchableOpacity
+  style={styles.actionButton}
+  onPress={() => router.push('/azkar' as unknown as any)}
+  testID="azkar-button"
+>
+  <Moon size={22} color={Colors.text} />
+  <Text style={styles.actionText}>الأذكار</Text>
+</TouchableOpacity>
+
+<TouchableOpacity
+  style={styles.actionButton}
+  onPress={() => router.push('/sebha' as unknown as any)}
+  testID="sebha-button"
+>
+  <Circle size={22} color={Colors.text} />
+  <Text style={styles.actionText}>السبحة</Text>
+</TouchableOpacity>
           </View>
 
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={styles.navButton}
             onPress={() => navigatePage('next')}
             disabled={displayPage <= 1}
           >
             <ChevronLeft size={28} color={displayPage <= 1 ? Colors.textMuted : Colors.gold} />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
       </Animated.View>
     </View>
