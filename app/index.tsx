@@ -1,143 +1,154 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
-  FlatList,
-  Image,
-  Dimensions,
-  StyleSheet,
   View,
   Text,
+  StyleSheet,
   TouchableOpacity,
-  Animated,
-  Platform,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter, useLocalSearchParams, Link } from "expo-router";
-import { Bookmark, BookOpen, Hash, ChevronLeft, ChevronRight, Moon, Circle } from "lucide-react-native";
-import * as Haptics from "expo-haptics";
+  FlatList,
+  Dimensions,
+  Modal,
+  Pressable,
+  // Image,
+  ActivityIndicator,
+} from 'react-native';
+import { Image } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { 
+  MoreVertical, 
+  List, 
+  Bookmark, 
+  BookOpen,
+  Settings,
+  Moon,
+  Sun,
+  X,
+  Play,
+  Pause,
+  Square,
+  Volume2,
+  Book,
+  MoreHorizontal
+} from 'lucide-react-native';
+import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useBookmarks, BookmarkType, getBookmarkColor, getBookmarkLabel } from '@/contexts/BookmarkContext';
+import { useAudio } from '@/contexts/AudioContext';
+import { getSurahByPage, TOTAL_PAGES, quranData, getJuzByPage, getHizbByPage, getRubByPage, getManzilByPage } from '@/data/quranData';
 import { mushafPages } from "@/data/mushafAssets";
-import { getSurahByPage, getJuzByPage, TOTAL_PAGES } from "@/data/quranData";
-import { useQuran } from "@/contexts/QuranContext";
-import Colors from "@/constants/colors";
 
-const { width, height } = Dimensions.get("window");
+const { width } = Dimensions.get('window');
 
-export default function MushafScreen() {
+export default function QuranScreen() {
   const router = useRouter();
-  const { goToPage: goToPageParam } = useLocalSearchParams<{ goToPage?: string }>();
   const insets = useSafeAreaInsets();
-  const { currentPage, updateCurrentPage, isPageBookmarked, addBookmark, lastReadPage, isLoading } = useQuran();
+  const { mode, colors, toggleTheme } = useTheme();
+  const { currentPage, setCurrentPage, addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks();
+  const { goToPage } = useLocalSearchParams<{ goToPage?: string }>();
   
-  const [showControls, setShowControls] = useState(true);
-  const [displayPage, setDisplayPage] = useState(currentPage);
-  const [initialScrollDone, setInitialScrollDone] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showBookmarkModal, setShowBookmarkModal] = useState(false);
+  const [bookmarkNotification, setBookmarkNotification] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
-  const controlsOpacity = useRef(new Animated.Value(1)).current;
-  const hideControlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  const {
+    currentSurah: playingSurahNumber,
+    isPlaying,
+    progress,
+    duration,
+    pauseAudio,
+    resumeAudio,
+    seekTo,
+    stopAudio,
+  } = useAudio();
 
-  const currentSurah = getSurahByPage(displayPage);
-  const currentJuz = getJuzByPage(displayPage);
-  const isBookmarked = isPageBookmarked(displayPage);
+  const formatTime = useCallback((ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }, []);
+
+  const playingSurahData = playingSurahNumber ? quranData.find(s => s.number === playingSurahNumber) : null;
+
+  const pages = useRef(Array.from({ length: TOTAL_PAGES }, (_, i) => i + 1)).current;
 
   useEffect(() => {
-    if (!isLoading && !initialScrollDone) {
-      const targetPage = goToPageParam ? parseInt(goToPageParam, 10) : lastReadPage;
-      if (targetPage > 0 && targetPage <= TOTAL_PAGES) {
+    if (goToPage) {
+      const pageNum = parseInt(goToPage, 10);
+      if (pageNum > 0 && pageNum <= TOTAL_PAGES) {
         setTimeout(() => {
-          flatListRef.current?.scrollToIndex({ index: targetPage - 1, animated: false });
-          setInitialScrollDone(true);
+          flatListRef.current?.scrollToIndex({ index: pageNum - 1, animated: false });
+          setCurrentPage(pageNum);
         }, 100);
-      } else {
-        setInitialScrollDone(true);
       }
+    } else if (currentPage > 1) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({ index: currentPage - 1, animated: false });
+      }, 100);
     }
-  }, [isLoading, lastReadPage, goToPageParam, initialScrollDone]);
+  }, [goToPage]);
 
-  useEffect(() => {
-    if (goToPageParam && initialScrollDone) {
-      const page = parseInt(goToPageParam, 10);
-      if (page > 0 && page <= TOTAL_PAGES) {
-        flatListRef.current?.scrollToIndex({ index: page - 1, animated: true });
-      }
-    }
-  }, [goToPageParam, initialScrollDone]);
-
-  const toggleControls = useCallback(() => {
-    if (hideControlsTimeout.current) {
-      clearTimeout(hideControlsTimeout.current);
-    }
-
-    const newValue = !showControls;
-    setShowControls(newValue);
-    
-    Animated.timing(controlsOpacity, {
-      toValue: newValue ? 1 : 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-
-    if (newValue) {
-      hideControlsTimeout.current = setTimeout(() => {
-        setShowControls(false);
-        Animated.timing(controlsOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }).start();
-      }, 5000);
-    }
-  }, [showControls, controlsOpacity]);
-
-  const handlePageChange = useCallback((index: number) => {
-    const page = index + 1;
-    setDisplayPage(page);
-    updateCurrentPage(page);
-  }, [updateCurrentPage]);
+  // const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
+  //   if (viewableItems.length > 0) {
+  //     const page = viewableItems[0].item;
+  //     setCurrentPage(page);
+  //   }
+  // }, [setCurrentPage]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) {
-      const index = viewableItems[0].index;
-      handlePageChange(index);
-    }
-  }).current;
+  if (viewableItems.length > 0) {
+    const page = viewableItems[0].item;
+    setCurrentPage(page);
+  }
+}).current;
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 50,
   }).current;
 
-  const handleBookmark = useCallback(async () => {
-    // if (Platform.OS !== 'web') {
-    //   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // }
-    await addBookmark(displayPage);
-  }, [displayPage, addBookmark]);
+  const currentSurah = getSurahByPage(currentPage);
+  const currentBookmark = getBookmarkForPage(currentPage);
 
-  const goToPage = useCallback((page: number) => {
-    if (page >= 1 && page <= TOTAL_PAGES) {
-      flatListRef.current?.scrollToIndex({ index: page - 1, animated: true });
-    }
+  const handleBookmark = useCallback((type: BookmarkType) => {
+    addBookmark(currentPage, type, currentSurah?.name);
+    setShowBookmarkModal(false);
+    setBookmarkNotification(`تم إضافة علامة ${getBookmarkLabel(type)}`);
+    setTimeout(() => setBookmarkNotification(null), 2000);
+  }, [currentPage, currentSurah, addBookmark]);
+
+  const handleRemoveBookmark = useCallback(() => {
+    removeBookmark(currentPage);
+    setShowBookmarkModal(false);
+    setBookmarkNotification('تم إزالة العلامة');
+    setTimeout(() => setBookmarkNotification(null), 2000);
+  }, [currentPage, removeBookmark]);
+
+  const juz = getJuzByPage(currentPage);
+  const hizb = getHizbByPage(currentPage);
+  const rub = getRubByPage(currentPage);
+  const manzil = getManzilByPage(currentPage);
+  const renderPage = useCallback(({ item }: { item: number }) => {
+     const pageImage = mushafPages.find(p => p.page === item)?.image;
+  if (!pageImage) return null; // fallback
+    return (
+      <View style={styles.pageContainer}>
+        {/* <Image
+          source={mushafPages.find(p => p.page === item)?.image}
+          style={styles.mushafImage}
+          resizeMode="contain"
+        /> */}
+        <Image
+          source={pageImage}
+          // resizeMode="contain"
+          // loadingIndicatorSource={require('@/assets/loading.png')} // صورة placeholder
+          style={styles.mushafImage}
+          contentFit="contain"
+          cachePolicy="memory-disk"
+        />
+      </View>
+    );
   }, []);
-
-  const navigatePage = useCallback((direction: 'prev' | 'next') => {
-    const newPage = direction === 'next' ? displayPage - 1 : displayPage + 1;
-    goToPage(newPage);
-    // if (Platform.OS !== 'web') {
-    //   Haptics.selectionAsync();
-    // }
-  }, [displayPage, goToPage]);
-
-  const renderPage = useCallback(({ item }: { item: typeof mushafPages[0] }) => (
-    <TouchableOpacity
-      activeOpacity={1}
-      onPress={toggleControls}
-      style={styles.pageContainer}
-    >
-      <Image
-        source={item.image}
-        style={styles.pageImage}
-        resizeMode="contain"
-      />
-    </TouchableOpacity>
-  ), [toggleControls]);
 
   const getItemLayout = useCallback((_: any, index: number) => ({
     length: width,
@@ -145,144 +156,265 @@ export default function MushafScreen() {
     index,
   }), []);
 
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>جارٍ التحميل...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      
+      <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <TouchableOpacity 
+          style={styles.headerButton} 
+          onPress={() => setShowMenu(true)}
+        >
+          <MoreVertical size={24} color={colors.text} />
+        </TouchableOpacity>
+
+        <View style={styles.headerCenter}>
+          <Text style={[styles.headerTitle, { color: colors.gold }]}>{currentSurah?.name || 'القرآن الكريم'}</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>صفحة {currentPage} • الجزء {juz}</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+           حزب {hizb.globalHizb} • ربع {rub.globalRub} • تحزيب القرآن {manzil}
+          </Text>
+        </View>
+
+        <TouchableOpacity 
+          style={styles.headerButton}
+          onPress={() => setShowBookmarkModal(true)}
+        >
+          <Bookmark 
+            size={24} 
+            color={currentBookmark ? getBookmarkColor(currentBookmark.type) : colors.text}
+            fill={currentBookmark ? getBookmarkColor(currentBookmark.type) : 'transparent'}
+          />
+        </TouchableOpacity>
+      </View>
+
       <FlatList
         ref={flatListRef}
-        data={mushafPages}
+        data={pages}
         horizontal
         pagingEnabled
         inverted
+        contentContainerStyle={{
+        paddingBottom: insets.bottom + 80, // مساحة للـ bottom bar فقط
+      }}
         showsHorizontalScrollIndicator={false}
-        keyExtractor={(item) => item.page.toString()}
+        keyExtractor={(item) => item.toString()}
         renderItem={renderPage}
         getItemLayout={getItemLayout}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        initialNumToRender={3}
-        maxToRenderPerBatch={3}
-        windowSize={5}
-        removeClippedSubviews={Platform.OS !== 'web'}
+        initialNumToRender={5}
+        maxToRenderPerBatch={5}
+        windowSize={7}
+        removeClippedSubviews={true}
+        onScrollToIndexFailed={(info) => {
+    // fallback في حال scrollToIndex فشل
+          flatListRef.current?.scrollToOffset({
+            offset: info.index * width,
+            animated: false,
+          });
+        }}
+        // onScrollToIndexFailed={(info) => {
+        //   setTimeout(() => {
+        //     flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+        //   }, 100);
+        // }}
       />
 
-      <Animated.View
-        style={[
-          styles.topBar,
-          { 
-            opacity: controlsOpacity,
-            paddingTop: insets.top + 8,
-          },
-        ]}
-        pointerEvents={showControls ? 'auto' : 'none'}
-      >
-        <View style={styles.topBarContent}>
-          <View style={styles.surahInfo}>
-            <Text style={styles.surahName}>{currentSurah?.name}</Text>
-            <Text style={styles.surahEnglish}>{currentSurah?.englishName}</Text>
+      {playingSurahNumber && (
+        <View style={[styles.audioPlayerBar, { backgroundColor: colors.surface, borderTopColor: colors.border, bottom: insets.bottom + 70 }]}>
+          <View style={styles.audioPlayerContent}>
+            <View style={styles.audioPlayerLeft}>
+              <Volume2 size={18} color={colors.gold} />
+              <View style={styles.audioPlayerInfo}>
+                <Text style={[styles.audioPlayerTitle, { color: colors.text }]} numberOfLines={1}>
+                  {playingSurahData?.name || `سورة ${playingSurahNumber}`}
+                </Text>
+                <Text style={[styles.audioPlayerTime, { color: colors.textSecondary }]}>
+                  {formatTime(progress)} / {formatTime(duration)}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.audioPlayerControls}>
+              <TouchableOpacity
+                style={[styles.audioControlBtn, { backgroundColor: colors.surfaceLight }]}
+                onPress={() => isPlaying ? pauseAudio() : resumeAudio()}
+              >
+                {isPlaying ? (
+                  <Pause size={20} color={colors.gold} />
+                ) : (
+                  <Play size={20} color={colors.gold} />
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.audioControlBtn, { backgroundColor: colors.surfaceLight }]}
+                onPress={stopAudio}
+              >
+                <Square size={16} color={colors.error} />
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={styles.pageInfo}>
-            <Text style={styles.pageNumber}>{displayPage}</Text>
-            <Text style={styles.juzNumber}>الجزء {currentJuz}</Text>
+          
+          <View style={styles.seekBarContainer}>
+            <TouchableOpacity
+              style={styles.seekBarTouchable}
+              activeOpacity={1}
+              onPress={(e) => {
+                const { locationX } = e.nativeEvent;
+                const barWidth = width - 32;
+                const percentage = Math.max(0, Math.min(1, locationX / barWidth));
+                const newPosition = percentage * duration;
+                seekTo(newPosition);
+              }}
+            >
+              <View style={[styles.seekBarBg, { backgroundColor: colors.surfaceLight }]}>
+                <View 
+                  style={[
+                    styles.seekBarFill, 
+                    { 
+                      backgroundColor: colors.gold,
+                      width: duration > 0 ? `${(progress / duration) * 100}%` : '0%'
+                    }
+                  ]} 
+                />
+                <View 
+                  style={[
+                    styles.seekBarThumb, 
+                    { 
+                      backgroundColor: colors.gold,
+                      left: duration > 0 ? `${(progress / duration) * 100}%` : '0%'
+                    }
+                  ]} 
+                />
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
-      </Animated.View>
+      )}
 
-      <Animated.View
-        style={[
-          styles.bottomBar,
-          { 
-            opacity: controlsOpacity,
-            paddingBottom: insets.bottom + 12,
-          },
-        ]}
-        pointerEvents={showControls ? 'auto' : 'none'}
-      >
-        <View style={styles.navigationRow}>
-          {/* <TouchableOpacity
-            style={styles.navButton}
-            onPress={() => navigatePage('prev')}
-            disabled={displayPage >= TOTAL_PAGES}
-          >
-            <ChevronRight size={28} color={displayPage >= TOTAL_PAGES ? Colors.textMuted : Colors.gold} />
-          </TouchableOpacity> */}
+      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+        <TouchableOpacity 
+          style={[styles.bottomButton, { backgroundColor: colors.surfaceLight }]}
+          onPress={() => router.push('/surah-index' as any)}
+        >
+          <List size={20} color={colors.gold} />
+          <Text style={[styles.bottomButtonText, { color: colors.text }]}>الفهرس</Text>
+        </TouchableOpacity>
 
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleBookmark}
-              testID="bookmark-button"
+        <TouchableOpacity 
+          style={[styles.bottomButton, { backgroundColor: colors.surfaceLight }]}
+          onPress={() => router.push({ pathname: '/tafsir' as any, params: { page: currentPage.toString() } })}
+        >
+          <BookOpen size={20} color={colors.gold} />
+          <Text style={[styles.bottomButtonText, { color: colors.text }]}>التفسير</Text>
+        </TouchableOpacity>
+      </View>
+
+      {bookmarkNotification && (
+        <View style={[styles.notification, { backgroundColor: colors.success }]}>
+          <Text style={styles.notificationText}>{bookmarkNotification}</Text>
+        </View>
+      )}
+
+      <Modal visible={showMenu} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setShowMenu(false)}>
+          <View style={[styles.menuContainer, { backgroundColor: colors.surface, top: insets.top + 50 }]}>
+            <TouchableOpacity 
+              style={[styles.menuItem, { borderBottomColor: colors.border }]}
+              onPress={() => { setShowMenu(false); router.push('/azkar' as any); }}
             >
-              <Bookmark
-                size={22}
-                color={isBookmarked ? Colors.gold : Colors.text}
-                fill={isBookmarked ? Colors.gold : 'transparent'}
-              />
-              <Text style={[styles.actionText, isBookmarked && styles.actionTextActive]}>
-                علامة
+              <Moon size={20} color={colors.text} />
+              <Text style={[styles.menuText, { color: colors.text }]}>الأذكار</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.menuItem, { borderBottomColor: colors.border }]}
+              onPress={() => { setShowMenu(false); router.push('/page-jump' as any); }}
+            >
+              <Book size={20} color={colors.text} />
+              <Text style={[styles.menuText, { color: colors.text }]}>الانتقال إلي صفحة</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.menuItem, { borderBottomColor: colors.border }]}
+              onPress={() => { setShowMenu(false); router.push('/more' as any); }}
+            >
+              <MoreHorizontal size={20} color={colors.text} />
+              <Text style={[styles.menuText, { color: colors.text }]}>المزيد</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.menuItem, { borderBottomColor: colors.border }]}
+              onPress={() => { setShowMenu(false); router.push('/settings' as any); }}
+            >
+              <Settings size={20} color={colors.text} />
+              <Text style={[styles.menuText, { color: colors.text }]}>الإعدادات</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.menuItem, { borderBottomColor: colors.border }]}
+              onPress={() => { setShowMenu(false); toggleTheme(); }}
+            >
+              {mode === 'dark' ? <Sun size={20} color={colors.text} /> : <Moon size={20} color={colors.text} />}
+              <Text style={[styles.menuText, { color: colors.text }]}>
+                {mode === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن'}
               </Text>
             </TouchableOpacity>
-
-         <Link href={'/surah-index' as unknown as any} asChild>
-        <TouchableOpacity style={styles.actionButton} testID="index-button">
-            <BookOpen size={22} color={Colors.text} />
-            <Text style={styles.actionText}>الفهرس</Text>
-        </TouchableOpacity>
-        </Link>
-
-
-           <TouchableOpacity
-  style={styles.actionButton}
-  onPress={() => router.push('/page-jump' as unknown as any)}
-  testID="page-jump-button"
->
-  <Hash size={22} color={Colors.text} />
-  <Text style={styles.actionText}>صفحة</Text>
-</TouchableOpacity>
-
-<TouchableOpacity
-  style={styles.actionButton}
-  onPress={() => router.push('/bookmarks' as unknown as any)}
-  testID="bookmarks-button"
->
-  <Bookmark size={22} color={Colors.text} />
-  <Text style={styles.actionText}>العلامات</Text>
-</TouchableOpacity>
-<TouchableOpacity
-  style={styles.actionButton}
-  onPress={() => router.push('/azkar' as unknown as any)}
-  testID="azkar-button"
->
-  <Moon size={22} color={Colors.text} />
-  <Text style={styles.actionText}>الأذكار</Text>
-</TouchableOpacity>
-
-<TouchableOpacity
-  style={styles.actionButton}
-  onPress={() => router.push('/sebha' as unknown as any)}
-  testID="sebha-button"
->
-  <Circle size={22} color={Colors.text} />
-  <Text style={styles.actionText}>السبحة</Text>
-</TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => { setShowMenu(false); router.push('/bookmarks' as any); }}
+            >
+              <Bookmark size={20} color={colors.text} />
+              <Text style={[styles.menuText, { color: colors.text }]}>العلامات المرجعية</Text>
+            </TouchableOpacity>
           </View>
+        </Pressable>
+      </Modal>
 
-          {/* <TouchableOpacity
-            style={styles.navButton}
-            onPress={() => navigatePage('next')}
-            disabled={displayPage <= 1}
-          >
-            <ChevronLeft size={28} color={displayPage <= 1 ? Colors.textMuted : Colors.gold} />
-          </TouchableOpacity> */}
-        </View>
-      </Animated.View>
+      <Modal visible={showBookmarkModal} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setShowBookmarkModal(false)}>
+          <View style={[styles.bookmarkModal, { backgroundColor: colors.surface, paddingBottom: insets.bottom + 20 }]}>
+            <View style={[styles.bookmarkHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.bookmarkTitle, { color: colors.text }]}>إضافة علامة</Text>
+              <TouchableOpacity onPress={() => setShowBookmarkModal(false)}>
+                <X size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.bookmarkOptions}>
+              <TouchableOpacity 
+                style={[styles.bookmarkOption, { backgroundColor: 'rgba(76, 175, 80, 0.15)', borderColor: '#4CAF50' }]}
+                onPress={() => handleBookmark('read')}
+              >
+                <Bookmark size={28} color="#4CAF50" fill="#4CAF50" />
+                <Text style={[styles.bookmarkOptionText, { color: '#4CAF50' }]}>قراءة</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.bookmarkOption, { backgroundColor: 'rgba(255, 152, 0, 0.15)', borderColor: '#FF9800' }]}
+                onPress={() => handleBookmark('review')}
+              >
+                <Bookmark size={28} color="#FF9800" fill="#FF9800" />
+                <Text style={[styles.bookmarkOptionText, { color: '#FF9800' }]}>مراجعة</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.bookmarkOption, { backgroundColor: 'rgba(33, 150, 243, 0.15)', borderColor: '#2196F3' }]}
+                onPress={() => handleBookmark('memorize')}
+              >
+                <Bookmark size={28} color="#2196F3" fill="#2196F3" />
+                <Text style={[styles.bookmarkOptionText, { color: '#2196F3' }]}>حفظ</Text>
+              </TouchableOpacity>
+            </View>
+
+            {currentBookmark && (
+              <TouchableOpacity 
+                style={[styles.removeBookmarkButton, { borderColor: colors.error }]}
+                onPress={handleRemoveBookmark}
+              >
+                <Text style={[styles.removeBookmarkText, { color: colors.error }]}>إزالة العلامة الحالية</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -290,107 +422,228 @@ export default function MushafScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    justifyContent: 'center',
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+  },
+  headerButton: {
+    padding: 8,
+  },
+  headerCenter: {
     alignItems: 'center',
   },
-  loadingText: {
-    color: Colors.gold,
-    fontSize: 18,
-    fontWeight: '600',
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
   },
   pageContainer: {
     width,
-    height,
-    justifyContent: 'center',
+    height: '100%',
+    backgroundColor: '#000',
+    justifyContent: 'flex-start',
     alignItems: 'center',
   },
-  pageImage: {
-    width: width,
-    height: height * 0.85,
-  },
-  topBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: Colors.overlay,
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-  },
-  topBarContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  surahInfo: {
-    alignItems: 'flex-start',
-  },
-  surahName: {
-    color: Colors.gold,
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  surahEnglish: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  pageInfo: {
-    alignItems: 'flex-end',
-  },
-  pageNumber: {
-    color: Colors.text,
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  juzNumber: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    marginTop: 2,
+  mushafImage: {
+    width: '100%',
+    height: '100%',
+    marginTop: 0,     // تأكيد
   },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: Colors.overlay,
-    paddingTop: 12,
-    paddingHorizontal: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+    borderTopWidth: 1,
   },
-  navigationRow: {
+  bottomButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  bottomButtonText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  notification: {
+    position: 'absolute',
+    top: 120,
+    left: 20,
+    right: 20,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  notificationText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600' as const,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  menuContainer: {
+    position: 'absolute',
+    left: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+    minWidth: 200,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderBottomWidth: 1,
+  },
+  menuText: {
+    fontSize: 16,
+  },
+  bookmarkModal: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  bookmarkHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+  },
+  bookmarkTitle: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+  },
+  bookmarkOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 20,
+  },
+  bookmarkOption: {
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 2,
+    minWidth: 90,
+  },
+  bookmarkOptionText: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  removeBookmarkButton: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  removeBookmarkText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+  },
+  audioPlayerBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    borderTopWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  audioPlayerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 8,
   },
-  navButton: {
-    padding: 12,
-  },
-  actionButtons: {
+  audioPlayerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    flex: 1,
+    gap: 10,
+  },
+  audioPlayerInfo: {
+    flex: 1,
+  },
+  audioPlayerTitle: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  audioPlayerTime: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  audioPlayerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
-  actionButton: {
+  audioControlBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seekBarContainer: {
+    width: '100%',
+  },
+  seekBarTouchable: {
     paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: Colors.surface,
-    minWidth: 60,
   },
-  actionText: {
-    color: Colors.text,
-    fontSize: 10,
-    marginTop: 4,
-    fontWeight: '500',
+  seekBarBg: {
+    height: 4,
+    borderRadius: 2,
+    position: 'relative',
   },
-  actionTextActive: {
-    color: Colors.gold,
+  seekBarFill: {
+    height: '100%',
+    borderRadius: 2,
+    position: 'absolute',
+    left: 0,
+    top: 0,
+  },
+  seekBarThumb: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    position: 'absolute',
+    top: -5,
+    marginLeft: -7,
   },
 });

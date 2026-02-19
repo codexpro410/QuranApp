@@ -14,11 +14,14 @@ import { X, Hash, ArrowLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { TOTAL_PAGES, getSurahByPage, getJuzByPage } from '@/data/quranData';
 import Colors from '@/constants/colors';
+import { useTheme } from '@/contexts/ThemeContext';
+import { StatusBar } from 'expo-status-bar';
 
 export default function PageJumpScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [pageInput, setPageInput] = useState('');
+  const { colors, mode } = useTheme(); // grab colors & mode
 
   const pageNumber = parseInt(pageInput, 10);
   const isValidPage = !isNaN(pageNumber) && pageNumber >= 1 && pageNumber <= TOTAL_PAGES;
@@ -27,9 +30,6 @@ export default function PageJumpScreen() {
 
   const handleGoToPage = useCallback(() => {
     if (isValidPage) {
-    //   if (Platform.OS !== 'web') {
-    //     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    //   }
       router.replace({
         pathname: '/',
         params: { goToPage: pageNumber.toString() },
@@ -40,79 +40,84 @@ export default function PageJumpScreen() {
   const quickPages = [1, 50, 100, 200, 300, 400, 500, 604];
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.container, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => router.back()}
-        >
-          <X size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <View style={styles.headerTitle}>
-          <Hash size={20} color={Colors.gold} />
-          <Text style={styles.headerText}>انتقل إلى صفحة</Text>
-        </View>
-        <View style={styles.placeholder} />
-      </View>
+    <>
+      {/* StatusBar respects mode */}
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
 
-      <View style={styles.content}>
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="رقم الصفحة"
-            placeholderTextColor={Colors.textMuted}
-            value={pageInput}
-            onChangeText={setPageInput}
-            keyboardType="number-pad"
-            maxLength={3}
-            autoFocus
-          />
-          <Text style={styles.totalPages}>من {TOTAL_PAGES}</Text>
-        </View>
-
-        {isValidPage && previewSurah && (
-          <View style={styles.preview}>
-            <Text style={styles.previewLabel}>ستذهب إلى:</Text>
-            <Text style={styles.previewSurah}>سورة {previewSurah.name}</Text>
-            <Text style={styles.previewJuz}>الجزء {previewJuz}</Text>
+      <KeyboardAvoidingView
+        style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            style={[styles.closeButton, { backgroundColor: colors.surface }]}
+            onPress={() => router.back()}
+          >
+            <X size={24} color={colors.text} />
+          </TouchableOpacity>
+          <View style={styles.headerTitle}>
+            <Hash size={20} color={colors.gold} />
+            <Text style={[styles.headerText, { color: colors.text }]}>انتقل إلى صفحة</Text>
           </View>
-        )}
+          <View style={styles.placeholder} />
+        </View>
 
-        <TouchableOpacity
-          style={[styles.goButton, !isValidPage && styles.goButtonDisabled]}
-          onPress={handleGoToPage}
-          disabled={!isValidPage}
-        >
-          <Text style={styles.goButtonText}>انتقل</Text>
-          <ArrowLeft size={20} color={Colors.background} />
-        </TouchableOpacity>
+        <View style={styles.content}>
+          <View style={[styles.inputContainer, { backgroundColor: colors.surface }]}>
+            <TextInput
+              style={[styles.input, { color: colors.gold }]}
+              placeholder="رقم الصفحة"
+              placeholderTextColor={colors.textSecondary}
+              value={pageInput}
+              onChangeText={setPageInput}
+              keyboardType="number-pad"
+              maxLength={3}
+              autoFocus
+            />
+            <Text style={[styles.totalPages, { color: colors.textSecondary }]}>من {TOTAL_PAGES}</Text>
+          </View>
 
-        <View style={styles.quickPagesSection}>
-          <Text style={styles.quickPagesLabel}>صفحات سريعة</Text>
-          <View style={styles.quickPagesGrid}>
-            {quickPages.map((page) => (
-              <TouchableOpacity
-                key={page}
-                style={styles.quickPageButton}
-                onPress={() => {
-                  setPageInput(page.toString());
-                //   if (Platform.OS !== 'web') {
-                //     Haptics.selectionAsync();
-                //   }
-                }}
-              >
-                <Text style={styles.quickPageText}>{page}</Text>
-              </TouchableOpacity>
-            ))}
+          {isValidPage && previewSurah && (
+            <View style={[styles.preview, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.previewLabel, { color: colors.textSecondary }]}>ستذهب إلى:</Text>
+              <Text style={[styles.previewSurah, { color: colors.gold }]}>سورة {previewSurah.name}</Text>
+              <Text style={[styles.previewJuz, { color: colors.textSecondary }]}>الجزء {previewJuz}</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[
+              styles.goButton,
+              { backgroundColor: colors.gold },
+              !isValidPage && { backgroundColor: colors.surfaceLight },
+            ]}
+            onPress={handleGoToPage}
+            disabled={!isValidPage}
+          >
+            <Text style={[styles.goButtonText, { color: colors.background }]}>انتقل</Text>
+            <ArrowLeft size={20} color={colors.background} />
+          </TouchableOpacity>
+
+          <View style={styles.quickPagesSection}>
+            <Text style={[styles.quickPagesLabel, { color: colors.textSecondary }]}>صفحات سريعة</Text>
+            <View style={styles.quickPagesGrid}>
+              {quickPages.map((page) => (
+                <TouchableOpacity
+                  key={page}
+                  style={[styles.quickPageButton, { backgroundColor: colors.surface }]}
+                  onPress={() => setPageInput(page.toString())}
+                >
+                  <Text style={[styles.quickPageText, { color: colors.text }]}>{page}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {

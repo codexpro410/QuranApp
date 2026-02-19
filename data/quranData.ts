@@ -135,6 +135,85 @@ export const getSurahByPage = (page: number): Surah | undefined => {
   return quranData[0];
 };
 
+export const juzPages: { juz: number; startPage: number }[] = [
+  { juz: 1, startPage: 1 },
+  { juz: 2, startPage: 22 },
+  { juz: 3, startPage: 42 },
+  { juz: 4, startPage: 62 },
+  { juz: 5, startPage: 82 },
+  { juz: 6, startPage: 102 },
+  { juz: 7, startPage: 122 },
+  { juz: 8, startPage: 142 },
+  { juz: 9, startPage: 162 },
+  { juz: 10, startPage: 182 },
+  { juz: 11, startPage: 202 },
+  { juz: 12, startPage: 222 },
+  { juz: 13, startPage: 242 },
+  { juz: 14, startPage: 262 },
+  { juz: 15, startPage: 282 },
+  { juz: 16, startPage: 302 },
+  { juz: 17, startPage: 322 },
+  { juz: 18, startPage: 342 },
+  { juz: 19, startPage: 362 },
+  { juz: 20, startPage: 382 },
+  { juz: 21, startPage: 402 },
+  { juz: 22, startPage: 422 },
+  { juz: 23, startPage: 442 },
+  { juz: 24, startPage: 462 },
+  { juz: 25, startPage: 482 },
+  { juz: 26, startPage: 502 },
+  { juz: 27, startPage: 522 },
+  { juz: 28, startPage: 542 },
+  { juz: 29, startPage: 562 },
+  { juz: 30, startPage: 582 },
+];
+
 export const getJuzByPage = (page: number): number => {
-  return Math.ceil(page / 20);
+  for (let i = juzPages.length - 1; i >= 0; i--) {
+    if (page >= juzPages[i].startPage) {
+      return juzPages[i].juz;
+    }
+  }
+  return 1;
+};
+
+export const getHizbByPage = (page: number) => {
+  const juz = getJuzByPage(page);
+  const juzStartPage = juzPages.find(j => j.juz === juz)?.startPage || 1;
+  const relativePage = page - juzStartPage;
+
+  // متوسط صفحات الجزء ≈ 20
+  const hizb = relativePage < 10 ? 1 : 2;
+
+  return {
+    juz,
+    hizb,               // 1 أو 2
+    globalHizb: (juz - 1) * 2 + hizb // رقم الحزب في المصحف كامل
+  };
+};
+
+export const getRubByPage = (page: number) => {
+  const juz = getJuzByPage(page);
+  const juzStartPage = juzPages.find(j => j.juz === juz)?.startPage || 1;
+  const relativePage = page - juzStartPage;
+
+  // 4 أرباع لكل جزء
+  const rub = Math.min(4, Math.floor(relativePage / 5) + 1);
+
+  return {
+    juz,
+    rub,                // 1 → 4
+    globalRub: (juz - 1) * 4 + rub
+  };
+};
+
+// المنازل (7 منازل) - تحزيب القرآن
+export const getManzilByPage = (page: number) => {
+  if (page <= 105) return 1;
+  if (page <= 207) return 2;
+  if (page <= 281) return 3;
+  if (page <= 366) return 4;
+  if (page <= 445) return 5;
+  if (page <= 517) return 6;
+  return 7;
 };

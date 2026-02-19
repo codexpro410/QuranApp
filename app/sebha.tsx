@@ -6,15 +6,14 @@ import {
   TouchableOpacity,
   FlatList,
   Dimensions,
-  Platform,
   Pressable,
   Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { X, RotateCcw, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
+import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '@/contexts/ThemeContext';
 import { useSebha } from '@/contexts/SebhaContext';
 
 const { width } = Dimensions.get('window');
@@ -26,33 +25,23 @@ const DHIKR_LIST = [
   { id: 4, text: 'لَا إِلَٰهَ إِلَّا اللَّهُ', transliteration: 'La ilaha illa Allah', meaning: 'There is no god but Allah' },
   { id: 5, text: 'أَسْتَغْفِرُ اللَّهَ', transliteration: 'Astaghfirullah', meaning: 'I seek forgiveness from Allah' },
   { id: 6, text: 'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ', transliteration: 'La hawla wa la quwwata illa billah', meaning: 'There is no power except with Allah' },
-  { 
-  id: 7, 
-  text: 'اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى نَبِيِّنَا مُحَمَّدٍ', 
-  transliteration: 'Allahumma salli wa sallim wa barik ala nabiyyina Muhammad', 
-  meaning: 'O Allah, send prayers, peace, and blessings upon our Prophet Muhammad' 
-},
-
+  { id: 7, text: 'اللَّهُمَّ صَلِّ وَسَلِّمْ عَلَى نَبِيِّنَا مُحَمَّدٍ', transliteration: 'Allahumma salli wa sallim ala nabiyyina Muhammad', meaning: 'O Allah, send prayers and peace upon our Prophet Muhammad' },
 ];
 
 const TARGET_OPTIONS = [33, 99, 100, 500, 1000];
 
 interface DhikrPageProps {
   item: typeof DHIKR_LIST[0];
-  index: number;
+  colors: any;
 }
 
-function DhikrPageComponent({ item }: DhikrPageProps) {
- const { counts, target, increment, reset, totalCount } = useSebha();
-const count = counts[item.id] || 0;
+function DhikrPageComponent({ item, colors }: DhikrPageProps) {
+  const { counts, target, increment, reset } = useSebha();
+  const count = counts[item.id] || 0;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const counterScaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePress = useCallback(() => {
-    // if (Platform.OS !== 'web') {
-    //   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // }
-
     Animated.sequence([
       Animated.timing(counterScaleAnim, {
         toValue: 1.15,
@@ -80,12 +69,9 @@ const count = counts[item.id] || 0;
     ]).start();
 
     increment(item.id);
-  }, [increment, scaleAnim, counterScaleAnim,item.id]);
+  }, [increment, scaleAnim, counterScaleAnim, item.id]);
 
   const handleReset = useCallback(() => {
-    // if (Platform.OS !== 'web') {
-    //   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // }
     reset(item.id);
   }, [reset, item.id]);
 
@@ -93,43 +79,41 @@ const count = counts[item.id] || 0;
   const isComplete = count >= target;
 
   return (
-    <View style={styles.pageContainer}>
+    <View style={[styles.pageContainer, { backgroundColor: colors.background }]}>
       <Pressable onPress={handlePress} style={styles.pressableArea}>
-        <Animated.View style={[styles.contentCard, { transform: [{ scale: scaleAnim }] }]}>
-          <Text style={styles.dhikrText}>{item.text}</Text>
-          <Text style={styles.transliteration}>{item.transliteration}</Text>
-          <Text style={styles.meaning}>{item.meaning}</Text>
+        <Animated.View style={[styles.contentCard, { backgroundColor: colors.surface, borderColor: colors.border, transform: [{ scale: scaleAnim }] }]}>
+          <Text style={[styles.dhikrText, { color: colors.gold }]}>{item.text}</Text>
+          <Text style={[styles.transliteration, { color: colors.textSecondary }]}>{item.transliteration}</Text>
+          <Text style={[styles.meaning, { color: colors.textMuted }]}>{item.meaning}</Text>
 
           <Animated.View 
             style={[
               styles.counterCircle, 
-              isComplete && styles.counterCircleComplete,
+              { backgroundColor: colors.surfaceLight, borderColor: colors.gold },
+              isComplete && { backgroundColor: colors.success, borderColor: colors.success },
               { transform: [{ scale: counterScaleAnim }] }
             ]}
           >
-            <Text style={[styles.counterNumber, isComplete && styles.counterNumberComplete]}>
+            <Text style={[styles.counterNumber, { color: isComplete ? colors.background : colors.gold }]}>
               {count}
             </Text>
           </Animated.View>
 
           <View style={styles.progressContainer}>
-            <View style={styles.progressBar}>
+            <View style={[styles.progressBar, { backgroundColor: colors.surfaceLight }]}>
               <View 
                 style={[
                   styles.progressFill, 
-                  { width: `${progress}%` },
-                  isComplete && styles.progressFillComplete
+                  { width: `${progress}%`, backgroundColor: isComplete ? colors.success : colors.gold },
                 ]} 
               />
             </View>
-            <Text style={styles.targetText}>{count} / {target}</Text>
+            <Text style={[styles.targetText, { color: colors.textSecondary }]}>{count} / {target}</Text>
           </View>
 
-          <Text style={styles.totalText}>الإجمالي: {totalCount}</Text>
-
-          <TouchableOpacity style={styles.resetButton} onPress={handleReset}>
-            <RotateCcw size={20} color={Colors.text} />
-            <Text style={styles.resetButtonText}>إعادة العداد</Text>
+          <TouchableOpacity style={[styles.resetButton, { backgroundColor: colors.surfaceLight }]} onPress={handleReset}>
+            <RotateCcw size={20} color={colors.text} />
+            <Text style={[styles.resetButtonText, { color: colors.text }]}>إعادة العداد</Text>
           </TouchableOpacity>
         </Animated.View>
       </Pressable>
@@ -146,7 +130,7 @@ export default function SebhaScreen() {
   const { target, updateTarget, resetTotal } = useSebha();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showTargetPicker, setShowTargetPicker] = useState(false);
-  
+  const { mode, colors } = useTheme();
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: { index: number | null }[] }) => {
     if (viewableItems.length > 0 && viewableItems[0].index !== null) {
@@ -158,9 +142,9 @@ export default function SebhaScreen() {
     itemVisiblePercentThreshold: 50,
   }).current;
 
-  const renderItem = useCallback(({ item, index }: { item: typeof DHIKR_LIST[0]; index: number }) => (
-    <DhikrPage item={item} index={index} />
-  ), []);
+  const renderItem = useCallback(({ item }: { item: typeof DHIKR_LIST[0] }) => (
+    <DhikrPage item={item} colors={colors} />
+  ), [colors]);
 
   const getItemLayout = useCallback((_: unknown, index: number) => ({
     length: width,
@@ -169,110 +153,112 @@ export default function SebhaScreen() {
   }), []);
 
   const handleResetTotal = useCallback(() => {
-    // if (Platform.OS !== 'web') {
-    //   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // }
     resetTotal();
   }, [resetTotal]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={() => router.back()}
-          testID="close-button"
+    <>
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => router.back()}
+            testID="close-button"
+          >
+            <X size={26} color={colors.text} />
+          </TouchableOpacity>
+
+          <Text style={[styles.headerTitle, { color: colors.gold }]}>السبحة</Text>
+
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={handleResetTotal}
+            testID="reset-total-button"
+          >
+            <Trash2 size={22} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.targetSelector, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          onPress={() => setShowTargetPicker(!showTargetPicker)}
         >
-          <X size={26} color={Colors.text} />
+          <Text style={[styles.targetSelectorText, { color: colors.text }]}>الهدف: {target}</Text>
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>السبحة</Text>
-
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={handleResetTotal}
-          testID="reset-total-button"
-        >
-          <Trash2 size={22} color={Colors.textSecondary} />
-        </TouchableOpacity>
-      </View>
-
-      <TouchableOpacity 
-        style={styles.targetSelector}
-        onPress={() => setShowTargetPicker(!showTargetPicker)}
-      >
-        <Text style={styles.targetSelectorText}>الهدف: {target}</Text>
-      </TouchableOpacity>
-
-      {showTargetPicker && (
-        <View style={styles.targetPickerContainer}>
-          {TARGET_OPTIONS.map((option) => (
-            <TouchableOpacity
-              key={option}
-              style={[
-                styles.targetOption,
-                target === option && styles.targetOptionActive,
-              ]}
-              onPress={() => {
-                updateTarget(option);
-                setShowTargetPicker(false);
-              }}
-            >
-              <Text 
+        {showTargetPicker && (
+          <View style={styles.targetPickerContainer}>
+            {TARGET_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option}
                 style={[
-                  styles.targetOptionText,
-                  target === option && styles.targetOptionTextActive,
+                  styles.targetOption,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                  target === option && { backgroundColor: colors.gold, borderColor: colors.gold },
                 ]}
+                onPress={() => {
+                  updateTarget(option);
+                  setShowTargetPicker(false);
+                }}
               >
-                {option}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
+                <Text 
+                  style={[
+                    styles.targetOptionText,
+                    { color: colors.text },
+                    target === option && { color: colors.background },
+                  ]}
+                >
+                  {option}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-      <FlatList
-        ref={flatListRef}
-        data={DHIKR_LIST}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={renderItem}
-        getItemLayout={getItemLayout}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        initialNumToRender={1}
-        maxToRenderPerBatch={2}
-        windowSize={3}
-      />
+        <FlatList
+          ref={flatListRef}
+          data={DHIKR_LIST}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderItem}
+          getItemLayout={getItemLayout}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          initialNumToRender={1}
+          maxToRenderPerBatch={2}
+          windowSize={3}
+        />
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <View style={styles.paginationDots}>
-          {DHIKR_LIST.map((_, idx) => (
-            <View
-              key={idx}
-              style={[
-                styles.dot,
-                idx === currentIndex && styles.dotActive,
-              ]}
-            />
-          ))}
-        </View>
-        <View style={styles.navigationHint}>
-          <ChevronRight size={16} color={Colors.textMuted} />
-          <Text style={styles.navigationText}>اسحب للتنقل بين الأذكار</Text>
-          <ChevronLeft size={16} color={Colors.textMuted} />
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+          <View style={styles.paginationDots}>
+            {DHIKR_LIST.map((_, idx) => (
+              <View
+                key={idx}
+                style={[
+                  styles.dot,
+                  { backgroundColor: colors.surfaceLight },
+                  idx === currentIndex && { backgroundColor: colors.gold, width: 24 },
+                ]}
+              />
+            ))}
+          </View>
+          <View style={styles.navigationHint}>
+            <ChevronRight size={16} color={colors.textMuted} />
+            <Text style={[styles.navigationText, { color: colors.textMuted }]}>اسحب للتنقل بين الأذكار</Text>
+            <ChevronLeft size={16} color={colors.textMuted} />
+          </View>
         </View>
       </View>
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -281,7 +267,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
   headerButton: {
     padding: 8,
@@ -289,21 +274,17 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: Colors.gold,
   },
   targetSelector: {
     alignSelf: 'center',
-    backgroundColor: Colors.surface,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
     marginVertical: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   targetSelectorText: {
     fontSize: 14,
-    color: Colors.text,
     fontWeight: '600',
   },
   targetPickerContainer: {
@@ -315,24 +296,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   targetOption: {
-    backgroundColor: Colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  targetOptionActive: {
-    backgroundColor: Colors.gold,
-    borderColor: Colors.gold,
   },
   targetOptionText: {
     fontSize: 14,
-    color: Colors.text,
     fontWeight: '600',
-  },
-  targetOptionTextActive: {
-    color: Colors.background,
   },
   pageContainer: {
     width,
@@ -344,30 +315,25 @@ const styles = StyleSheet.create({
   },
   contentCard: {
     flex: 1,
-    backgroundColor: Colors.surface,
     borderRadius: 24,
     padding: 24,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   dhikrText: {
     fontSize: 36,
     fontWeight: '700',
-    color: Colors.gold,
     textAlign: 'center',
     marginBottom: 12,
   },
   transliteration: {
     fontSize: 16,
-    color: Colors.textSecondary,
     fontStyle: 'italic',
     marginBottom: 6,
   },
   meaning: {
     fontSize: 14,
-    color: Colors.textMuted,
     textAlign: 'center',
     marginBottom: 32,
   },
@@ -375,24 +341,14 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 70,
-    backgroundColor: Colors.surfaceLight,
     borderWidth: 5,
-    borderColor: Colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
   },
-  counterCircleComplete: {
-    backgroundColor: Colors.success,
-    borderColor: Colors.success,
-  },
   counterNumber: {
     fontSize: 56,
     fontWeight: '700',
-    color: Colors.gold,
-  },
-  counterNumberComplete: {
-    color: Colors.background,
   },
   progressContainer: {
     width: '100%',
@@ -402,33 +358,21 @@ const styles = StyleSheet.create({
   progressBar: {
     width: '80%',
     height: 8,
-    backgroundColor: Colors.surfaceLight,
     borderRadius: 4,
     overflow: 'hidden',
     marginBottom: 8,
   },
   progressFill: {
     height: '100%',
-    backgroundColor: Colors.gold,
     borderRadius: 4,
-  },
-  progressFillComplete: {
-    backgroundColor: Colors.success,
   },
   targetText: {
     fontSize: 16,
-    color: Colors.textSecondary,
     fontWeight: '600',
-  },
-  totalText: {
-    fontSize: 14,
-    color: Colors.textMuted,
-    marginBottom: 20,
   },
   resetButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceLight,
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 24,
@@ -436,7 +380,6 @@ const styles = StyleSheet.create({
   },
   resetButtonText: {
     fontSize: 14,
-    color: Colors.text,
     fontWeight: '600',
   },
   footer: {
@@ -454,11 +397,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: Colors.surfaceLight,
-  },
-  dotActive: {
-    backgroundColor: Colors.gold,
-    width: 24,
   },
   navigationHint: {
     flexDirection: 'row',
@@ -468,6 +406,5 @@ const styles = StyleSheet.create({
   },
   navigationText: {
     fontSize: 12,
-    color: Colors.textMuted,
   },
 });

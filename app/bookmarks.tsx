@@ -1,30 +1,39 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
-  Platform,
-  Alert,
+  FlatList,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { X, Bookmark, Trash2, BookOpen } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import { useQuran, Bookmark as BookmarkType } from '@/contexts/QuranContext';
-import { getSurahByPage, getJuzByPage } from '@/data/quranData';
-import Colors from '@/constants/colors';
+import { X, Bookmark, Trash2 } from 'lucide-react-native';
+import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useBookmarks, Bookmark as BookmarkType, getBookmarkColor, getBookmarkLabel, BookmarkType as BType } from '@/contexts/BookmarkContext';
+
+const FILTER_OPTIONS: { label: string; value: BType | 'all' }[] = [
+  { label: 'الكل', value: 'all' },
+  { label: 'قراءة', value: 'read' },
+  { label: 'مراجعة', value: 'review' },
+  { label: 'حفظ', value: 'memorize' },
+];
 
 export default function BookmarksScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { bookmarks, removeBookmark } = useQuran();
+  const { mode, colors } = useTheme();
+  const { bookmarks, removeBookmark } = useBookmarks();
+  const [filter, setFilter] = useState<BType | 'all'>('all');
+
+  const filteredBookmarks = filter === 'all' 
+    ? bookmarks 
+    : bookmarks.filter(b => b.type === filter);
+
+  const sortedBookmarks = [...filteredBookmarks].sort((a, b) => b.createdAt - a.createdAt);
 
   const handleBookmarkPress = useCallback((bookmark: BookmarkType) => {
-    // if (Platform.OS !== 'web') {
-    //   Haptics.selectionAsync();
-    // }
     router.replace({
       pathname: '/',
       params: { goToPage: bookmark.page.toString() },
@@ -32,97 +41,109 @@ export default function BookmarksScreen() {
   }, [router]);
 
   const handleRemoveBookmark = useCallback((page: number) => {
-    if (Platform.OS === 'web') {
-      removeBookmark(page);
-    } else {
-      Alert.alert(
-        'حذف العلامة',
-        `هل تريد حذف علامة الصفحة ${page}؟`,
-        [
-          { text: 'إلغاء', style: 'cancel' },
-          {
-            text: 'حذف',
-            style: 'destructive',
-            onPress: () => {
-            //   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              removeBookmark(page);
-            },
-          },
-        ]
-      );
-    }
+    removeBookmark(page);
   }, [removeBookmark]);
 
-  const formatDate = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('ar-SA', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
   const renderBookmark = useCallback(({ item }: { item: BookmarkType }) => {
-    const surah = getSurahByPage(item.page);
-    const juz = getJuzByPage(item.page);
+    const bookmarkColor = getBookmarkColor(item.type);
+    const date = new Date(item.createdAt);
+    const dateStr = date.toLocaleDateString('ar-EG', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
 
     return (
       <TouchableOpacity
-        style={styles.bookmarkItem}
+        style={[styles.bookmarkItem, { backgroundColor: colors.surface, borderLeftColor: bookmarkColor }]}
         onPress={() => handleBookmarkPress(item)}
-        activeOpacity={0.7}
+        activeOpacity={0.8}
       >
-        <View style={styles.bookmarkIcon}>
-          <Bookmark size={20} color={Colors.gold} fill={Colors.gold} />
-        </View>
-        <View style={styles.bookmarkDetails}>
+        <View style={styles.bookmarkContent}>
           <View style={styles.bookmarkHeader}>
-            <Text style={styles.pageNumber}>صفحة {item.page}</Text>
-            <Text style={styles.juzText}>الجزء {juz}</Text>
+            <View style={[styles.typeBadge, { backgroundColor: `${bookmarkColor}20` }]}>
+              <Bookmark size={14} color={bookmarkColor} fill={bookmarkColor} />
+              <Text style={[styles.typeText, { color: bookmarkColor }]}>{getBookmarkLabel(item.type)}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => handleRemoveBookmark(item.page)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Trash2 size={18} color={colors.error} />
+            </TouchableOpacity>
           </View>
-          {surah && (
-            <Text style={styles.surahName}>سورة {surah.name}</Text>
-          )}
-          <Text style={styles.dateText}>{formatDate(item.timestamp)}</Text>
+          
+          <Text style={[styles.surahName, { color: colors.text }]}>
+            {item.surahName || `صفحة ${item.page}`}
+          </Text>
+          <Text style={[styles.pageNumber, { color: colors.textSecondary }]}>
+            صفحة {item.page}
+          </Text>
+          <View style={{ flexDirection:'row', justifyContent:'flex-end', gap:6 }}>
+            <Text style={{ fontSize:12 }}>🕒</Text>
+            <Text style={[styles.dateText, { color: colors.textMuted }]}>{dateStr}</Text>
+          </View>
         </View>
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => handleRemoveBookmark(item.page)}
-        >
-          <Trash2 size={18} color={Colors.error} />
-        </TouchableOpacity>
       </TouchableOpacity>
     );
-  }, [handleBookmarkPress, handleRemoveBookmark]);
+  }, [colors, handleBookmarkPress, handleRemoveBookmark]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => router.back()}
-        >
-          <X size={24} color={Colors.text} />
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity style={[styles.closeButton, { backgroundColor: colors.surface }]} onPress={() => router.back()}>
+          <X size={22} color={colors.text} />
         </TouchableOpacity>
+
         <View style={styles.headerTitle}>
-          <Bookmark size={20} color={Colors.gold} />
-          <Text style={styles.headerText}>العلامات المرجعية</Text>
+          <Bookmark size={20} color={colors.gold} />
+          <Text style={[styles.headerText, { color: colors.text }]}>العلامات المرجعية</Text>
         </View>
+
         <View style={styles.placeholder} />
       </View>
 
+      <View style={styles.filterContainer}>
+        {FILTER_OPTIONS.map((option) => (
+          <TouchableOpacity
+            key={option.value}
+            style={[
+              styles.filterButton,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+              filter === option.value && { backgroundColor: colors.gold, borderColor: colors.gold },
+            ]}
+            onPress={() => setFilter(option.value)}
+          >
+            <Text
+              style={[
+                styles.filterText,
+                { color: colors.text },
+                filter === option.value && { color: colors.background },
+              ]}
+            >
+              {option.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <FlatList
-        data={bookmarks}
-        keyExtractor={(item) => item.page.toString()}
+        data={sortedBookmarks}
+        keyExtractor={(item) => `${item.page}-${item.createdAt}`}
         renderItem={renderBookmark}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <BookOpen size={48} color={Colors.textMuted} />
-            <Text style={styles.emptyTitle}>لا توجد علامات</Text>
-            <Text style={styles.emptyText}>
-              أضف علامة مرجعية أثناء القراءة للعودة إليها لاحقاً
+            <Bookmark size={48} color={colors.textMuted} />
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+              لا توجد علامات مرجعية
+            </Text>
+            <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>
+              اضغط على أيقونة العلامة في صفحة القرآن لإضافة علامة
             </Text>
           </View>
         }
@@ -134,7 +155,6 @@ export default function BookmarksScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -143,12 +163,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
   closeButton: {
     padding: 8,
     borderRadius: 20,
-    backgroundColor: Colors.surface,
   },
   headerTitle: {
     flexDirection: 'row',
@@ -156,83 +174,90 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerText: {
-    color: Colors.text,
     fontSize: 18,
     fontWeight: '700',
   },
   placeholder: {
     width: 40,
   },
+  filterContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
   listContent: {
     padding: 16,
-    flexGrow: 1,
+    paddingBottom: 40,
   },
   bookmarkItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
+    borderRadius: 14,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    overflow: 'hidden',
   },
-  bookmarkIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.surfaceLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  bookmarkDetails: {
-    flex: 1,
-    marginHorizontal: 12,
+  bookmarkContent: {
+    padding: 16,
   },
   bookmarkHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
+    marginBottom: 8,
   },
-  pageNumber: {
-    color: Colors.gold,
-    fontSize: 16,
-    fontWeight: '700',
+  typeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  juzText: {
-    color: Colors.textSecondary,
+  typeText: {
     fontSize: 12,
-  },
-  surahName: {
-    color: Colors.text,
-    fontSize: 14,
-    marginTop: 2,
-  },
-  dateText: {
-    color: Colors.textMuted,
-    fontSize: 11,
-    marginTop: 4,
+    fontWeight: '600',
   },
   deleteButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: Colors.surfaceLight,
+    padding: 4,
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    color: Colors.text,
+  surahName: {
     fontSize: 18,
     fontWeight: '600',
-    marginTop: 16,
+    marginBottom: 4,
+    textAlign: 'right',
+  },
+  pageNumber: {
+    fontSize: 14,
+    marginBottom: 4,
+    textAlign: 'right',
+  },
+  dateText: {
+    fontSize: 16,
+    textAlign: 'right',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    gap: 12,
   },
   emptyText: {
-    color: Colors.textMuted,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  emptySubtext: {
     fontSize: 14,
     textAlign: 'center',
-    marginTop: 8,
     paddingHorizontal: 40,
   },
 });
