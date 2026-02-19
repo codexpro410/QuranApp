@@ -13,6 +13,7 @@ import { AzkarProvider } from "@/contexts/AzkarContext";
 import { SebhaProvider } from "@/contexts/SebhaContext";
 import { QuranProvider } from "@/contexts/QuranContext";
 import DoaaSplash from "./splash-doaa";
+import { HifzProvider } from "@/contexts/HifzContext";
 // SplashScreen.preventAutoHideAsync();
 
 
@@ -35,6 +36,9 @@ function RootLayoutNav() {
       <Stack.Screen name="splash-doaa" options={{ headerShown: false, animation: 'fade' }} />
       <Stack.Screen name="bookmarks" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="settings" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="hifz" options={{ headerShown: false }} />
+      <Stack.Screen name="memorize" options={{ headerShown: false }} />
+      <Stack.Screen name="revise" options={{ headerShown: false }} />
     </Stack>
   );
 }
@@ -48,6 +52,7 @@ export default function RootLayout() {
 
   return (
   <QueryClientProvider client={queryClient}>
+    <HifzProvider>
     <QuranProvider>
     <ThemeProvider>
       <BookmarkProvider>
@@ -70,6 +75,7 @@ export default function RootLayout() {
       </BookmarkProvider>
     </ThemeProvider>
     </QuranProvider>
+    </HifzProvider>
   </QueryClientProvider>
 );
 }

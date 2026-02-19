@@ -28,7 +28,8 @@ import {
   Square,
   Volume2,
   Book,
-  MoreHorizontal
+  MoreHorizontal,
+  Save
 } from 'lucide-react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -347,6 +348,14 @@ export default function QuranScreen() {
             >
               <Settings size={20} color={colors.text} />
               <Text style={[styles.menuText, { color: colors.text }]}>الإعدادات</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.menuItem, { borderBottomColor: colors.border }]}
+              onPress={() => { setShowMenu(false); router.push('/hifz' as any); }}
+            >
+              
+              <Save size={20} color={colors.text} />
+              <Text style={[styles.menuText, { color: colors.text }]}>برنامج تحفيظ</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.menuItem, { borderBottomColor: colors.border }]}
