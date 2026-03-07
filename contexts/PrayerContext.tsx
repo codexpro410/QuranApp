@@ -1,8 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-
-// ── Prayer time calculation (Shafi'i / Egyptian Authority method) ──────────────
 export type PrayerName = 'fajr' | 'dhuhr' | 'asr' | 'maghrib' | 'isha';
 
 const PRAYER_NAMES_AR: Record<PrayerName, string> = {
@@ -20,37 +18,64 @@ export interface PrayerTime {
   timeStr: string;
 }
 
+// manual override stores hour+minute per prayer
+export type ManualOverrides = Partial<Record<PrayerName, { hour: number; minute: number } | null>>;
+
 export interface PrayerSettings {
   enabled: boolean;
-  notifyBefore15: boolean; // 15-min reminder
+  notifyBefore15: boolean;
+  notifyAtTime: boolean;
   enabledPrayers: Record<PrayerName, boolean>;
   cityName: string;
   latitude: number;
   longitude: number;
-  method: number; // calculation method: 3=Egyptian, 4=UmmAlQura, 2=ISNA
+  method: number;
+  manualOverrides: ManualOverrides;
 }
+
+export interface CalcMethod {
+  id: number;
+  label: string;
+  fajrAngle: number;
+  ishaAngle?: number;
+  ishaMinutes?: number; // used by Umm Al-Qura instead of angle
+}
+
+export const CALCULATION_METHODS: CalcMethod[] = [
+  { id: 3,  label: 'الهيئة المصرية العامة للمساحة',        fajrAngle: 19.5, ishaAngle: 17.5 },
+  { id: 2,  label: 'جمعية إسلامية في أمريكا (ISNA)',       fajrAngle: 15,   ishaAngle: 15   },
+  { id: 4,  label: 'أم القرى – السعودية',                  fajrAngle: 18.5, ishaMinutes: 90 },
+  { id: 5,  label: 'الرابطة الإسلامية العالمية (مكة)',     fajrAngle: 18,   ishaAngle: 17   },
+  { id: 7,  label: 'هيئة الديانة التركية (ديانت)',         fajrAngle: 18,   ishaAngle: 17   },
+  { id: 8,  label: 'مجمع الفقه الإسلامي (كراتشي)',        fajrAngle: 18,   ishaAngle: 18   },
+  { id: 9,  label: 'دائرة الشؤون الإسلامية – دبي',        fajrAngle: 18.2, ishaAngle: 18.2 },
+];
 
 interface PrayerContextType {
   prayers: PrayerTime[];
   nextPrayer: PrayerTime | null;
   settings: PrayerSettings;
   updateSettings: (s: Partial<PrayerSettings>) => Promise<void>;
+  setManualOverride: (prayer: PrayerName, hour: number, minute: number) => Promise<void>;
+  clearManualOverride: (prayer: PrayerName) => Promise<void>;
   refresh: () => void;
 }
 
 const DEFAULT_SETTINGS: PrayerSettings = {
   enabled: false,
   notifyBefore15: true,
+  notifyAtTime: true,
   enabledPrayers: { fajr: true, dhuhr: true, asr: true, maghrib: true, isha: true },
   cityName: 'القاهرة',
   latitude: 30.0444,
   longitude: 31.2357,
   method: 3,
+  manualOverrides: {},
 };
 
-const STORAGE_KEY = 'prayer_settings';
+const STORAGE_KEY = 'prayer_settings_v2';
 
-// ── Accurate prayer calculation (simplified Meeus/Montenbruck-Pfleger) ──
+// ── Sun math (Meeus) ──────────────────────────────────────────────────────────
 function toRad(d: number) { return d * Math.PI / 180; }
 function toDeg(r: number) { return r * 180 / Math.PI; }
 function fixAngle(a: number) { return a - 360 * Math.floor(a / 360); }
@@ -73,7 +98,8 @@ function julianDay(date: Date) {
   const A = Math.floor((14 - M) / 12);
   const y = Y + 4800 - A;
   const m = M + 12 * A - 3;
-  return D + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045 - 0.5;
+  return D + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4)
+    - Math.floor(y / 100) + Math.floor(y / 400) - 32045 - 0.5;
 }
 
 function computeTime(angle: number, decl: number, lat: number): number {
@@ -84,26 +110,30 @@ function computeTime(angle: number, decl: number, lat: number): number {
   return toDeg(Math.acos(cosO)) / 15;
 }
 
-function asrShadow(t: number, decl: number, lat: number) {
-  const angle = -toDeg(Math.atan(1 / (t + Math.tan(toRad(Math.abs(lat - decl))))));
+function asrShadow(decl: number, lat: number) {
+  // Shafi'i: shadow multiplier = 1
+  const angle = -toDeg(Math.atan(1 / (1 + Math.tan(toRad(Math.abs(lat - decl))))));
   return computeTime(angle, decl, lat);
 }
 
-function calculatePrayers(date: Date, lat: number, lng: number, method: number): Record<PrayerName, Date> {
+function calculatePrayers(
+  date: Date,
+  lat: number,
+  lng: number,
+  method: CalcMethod,
+  overrides: ManualOverrides,
+): Record<PrayerName, Date> {
   const jd = julianDay(date);
   const { decl, EqT } = sunPosition(jd);
-
   const timezone = -(date.getTimezoneOffset() / 60);
   const noon = 12 + timezone - lng / 15 - EqT;
 
-  // Fajr / Isha angles by method
-  const fajrAngle = method === 4 ? 18.5 : method === 2 ? 15 : 19.5; // Egyptian=19.5
-  const ishaAngle = method === 4 ? 90 : method === 2 ? 15 : 17.5;   // Egyptian=17.5
-
-  const fajrDiff = computeTime(fajrAngle, decl, lat);
-  const maghribDiff = computeTime(0.833 + 0.0347 * Math.sqrt(0), decl, lat); // simplified
-  const ishaDiff = computeTime(ishaAngle, decl, lat);
-  const asrDiff = asrShadow(1, decl, lat); // Shafi'i (shadow = 1x)
+  const fajrDiff    = computeTime(method.fajrAngle, decl, lat);
+  const maghribDiff = computeTime(0.833, decl, lat);
+  const ishaDiff    = method.ishaMinutes
+    ? maghribDiff + method.ishaMinutes / 60
+    : computeTime(method.ishaAngle!, decl, lat);
+  const asrDiff     = asrShadow(decl, lat);
 
   function toDate(h: number): Date {
     const hours = Math.floor(h);
@@ -113,16 +143,28 @@ function calculatePrayers(date: Date, lat: number, lng: number, method: number):
     return d;
   }
 
-  return {
-    fajr: toDate(noon - fajrDiff),
-    dhuhr: toDate(noon),
-    asr: toDate(noon + asrDiff),
+  const calculated: Record<PrayerName, Date> = {
+    fajr:    toDate(noon - fajrDiff),
+    dhuhr:   toDate(noon + 0.083), // ~5 min after true solar noon
+    asr:     toDate(noon + asrDiff),
     maghrib: toDate(noon + maghribDiff),
-    isha: toDate(noon + ishaDiff),
+    isha:    toDate(noon + ishaDiff),
   };
+
+  // Apply manual overrides on top
+  const result = { ...calculated };
+  for (const key of Object.keys(overrides) as PrayerName[]) {
+    const ov = overrides[key];
+    if (ov) {
+      const d = new Date(date);
+      d.setHours(ov.hour, ov.minute, 0, 0);
+      result[key] = d;
+    }
+  }
+  return result;
 }
 
-function formatTime(d: Date): string {
+export function formatTime(d: Date): string {
   let h = d.getHours();
   const m = d.getMinutes();
   const ampm = h >= 12 ? 'م' : 'ص';
@@ -130,21 +172,31 @@ function formatTime(d: Date): string {
   return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 const PrayerContext = createContext<PrayerContextType | null>(null);
 
 export function PrayerProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<PrayerSettings>(DEFAULT_SETTINGS);
-  const [prayers, setPrayers] = useState<PrayerTime[]>([]);
+  const [prayers, setPrayers]   = useState<PrayerTime[]>([]);
   const [nextPrayer, setNextPrayer] = useState<PrayerTime | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then(v => {
-      if (v) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(v) });
+      if (v) {
+        const parsed = JSON.parse(v);
+        setSettings({
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          manualOverrides: parsed.manualOverrides ?? {},
+        });
+      }
     });
   }, []);
 
-  const computePrayers = useCallback((s: PrayerSettings) => {
-    const raw = calculatePrayers(new Date(), s.latitude, s.longitude, s.method);
+  const computePrayers = useCallback((s: PrayerSettings): PrayerTime[] => {
+    const method = CALCULATION_METHODS.find(m => m.id === s.method) ?? CALCULATION_METHODS[0];
+    const raw = calculatePrayers(new Date(), s.latitude, s.longitude, method, s.manualOverrides);
     const order: PrayerName[] = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
     const list: PrayerTime[] = order.map(name => ({
       name,
@@ -153,73 +205,80 @@ export function PrayerProvider({ children }: { children: React.ReactNode }) {
       timeStr: formatTime(raw[name]),
     }));
     setPrayers(list);
-
     const now = new Date();
-    const next = list.find(p => p.time > now) ?? list[0];
-    setNextPrayer(next);
-
+    setNextPrayer(list.find(p => p.time > now) ?? list[0]);
     return list;
   }, []);
 
-  useEffect(() => {
-    computePrayers(settings);
-  }, [settings, computePrayers]);
+  useEffect(() => { computePrayers(settings); }, [settings, computePrayers]);
 
-  const scheduleNotifications = useCallback(async (s: PrayerSettings, prayerList: PrayerTime[]) => {
+  const scheduleNotifications = useCallback(async (s: PrayerSettings, list: PrayerTime[]) => {
     await Notifications.cancelAllScheduledNotificationsAsync();
     if (!s.enabled) return;
 
-    for (const prayer of prayerList) {
+    for (const prayer of list) {
       if (!s.enabledPrayers[prayer.name]) continue;
 
+      // 15-min reminder
       if (s.notifyBefore15) {
         const reminderTime = new Date(prayer.time.getTime() - 15 * 60 * 1000);
         if (reminderTime > new Date()) {
           await Notifications.scheduleNotificationAsync({
             content: {
               title: `🕌 تنبيه: ${prayer.nameAr}`,
-              body: `متبقي 15 دقيقة على أذان ${prayer.nameAr} - الساعة ${prayer.timeStr}`,
+              body: `متبقي 15 دقيقة على أذان ${prayer.nameAr} — الساعة ${prayer.timeStr}`,
               sound: true,
             },
-            trigger: {
-              type: Notifications.SchedulableTriggerInputTypes.DATE,
-              date: reminderTime,
-            },
+            trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: reminderTime },
           });
         }
       }
 
-      // Also notify at prayer time
-      if (prayer.time > new Date()) {
+      // At prayer time
+      if (s.notifyAtTime && prayer.time > new Date()) {
         await Notifications.scheduleNotificationAsync({
           content: {
             title: `🕌 حان أذان ${prayer.nameAr}`,
             body: `حان وقت صلاة ${prayer.nameAr}`,
             sound: true,
           },
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.DATE,
-            date: prayer.time,
-          },
+          trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: prayer.time },
         });
       }
     }
   }, []);
 
-  const updateSettings = useCallback(async (s: Partial<PrayerSettings>) => {
-    const updated = { ...settings, ...s };
+  const saveAndApply = useCallback(async (updated: PrayerSettings) => {
     setSettings(updated);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    const prayerList = computePrayers(updated);
-    await scheduleNotifications(updated, prayerList);
-  }, [settings, computePrayers, scheduleNotifications]);
+    const list = computePrayers(updated);
+    await scheduleNotifications(updated, list);
+  }, [computePrayers, scheduleNotifications]);
 
-  const refresh = useCallback(() => {
-    computePrayers(settings);
-  }, [settings, computePrayers]);
+  const updateSettings = useCallback(async (s: Partial<PrayerSettings>) => {
+    await saveAndApply({ ...settings, ...s });
+  }, [settings, saveAndApply]);
+
+  const setManualOverride = useCallback(async (prayer: PrayerName, hour: number, minute: number) => {
+    await saveAndApply({
+      ...settings,
+      manualOverrides: { ...settings.manualOverrides, [prayer]: { hour, minute } },
+    });
+  }, [settings, saveAndApply]);
+
+  const clearManualOverride = useCallback(async (prayer: PrayerName) => {
+    const newOverrides = { ...settings.manualOverrides };
+    delete newOverrides[prayer];
+    await saveAndApply({ ...settings, manualOverrides: newOverrides });
+  }, [settings, saveAndApply]);
+
+  const refresh = useCallback(() => { computePrayers(settings); }, [settings, computePrayers]);
 
   return (
-    <PrayerContext.Provider value={{ prayers, nextPrayer, settings, updateSettings, refresh }}>
+    <PrayerContext.Provider value={{
+      prayers, nextPrayer, settings,
+      updateSettings, setManualOverride, clearManualOverride, refresh,
+    }}>
       {children}
     </PrayerContext.Provider>
   );

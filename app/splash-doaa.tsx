@@ -1,14 +1,12 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Animated,
-  Dimensions,
+    Animated,
+    Dimensions,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
@@ -58,7 +56,7 @@ export default function DoaaSplash({ onComplete }: { onComplete: () => void }) {
 
     const timer = setTimeout(() => {
       onComplete();
-    }, 5500);
+    }, 4500);
 
     return () => clearTimeout(timer);
   }, []);

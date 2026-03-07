@@ -1,33 +1,35 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Dimensions,
-  Alert,
-} from 'react-native';
-import { Image } from 'expo-image';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import {
-  ArrowLeft,
-  ArrowRight,
-  CheckCircle2,
-  AlertTriangle,
-  SkipForward,
-  Brain,
-  ChevronDown,
-  ChevronUp,
-  Info,
-  Layers,
-} from 'lucide-react-native';
-import { StatusBar } from 'expo-status-bar';
+import { JUZ_PAGES, PageStatus, useHifz } from '@/contexts/HifzContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useHifz, JUZ_PAGES, PageStatus } from '@/contexts/HifzContext';
 import { mushafPages } from '@/data/mushafAssets';
-import { getSurahByPage, getJuzByPage } from '@/data/quranData';
+import { getJuzByPage, getSurahByPage } from '@/data/quranData';
+import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import {
+    AlertTriangle,
+    ArrowLeft,
+    ArrowRight,
+    Brain,
+    CheckCircle2,
+    Flame,
+    Info,
+    Layers,
+    Lightbulb,
+    SkipForward,
+    Target
+} from 'lucide-react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+    Alert,
+    Dimensions,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
@@ -37,6 +39,16 @@ const STATUS_CONFIG = {
   strong: { color: '#4CAF50', label: 'قوي' },
   weak: { color: '#F44336', label: 'ضعيف' },
 };
+
+const EXPERT_TIPS = [
+  "قسّم الصفحة إلى 3 أجزاء، واحفظ كل جزء على حدة، ثم اربطها معاً.",
+  "كرر الآية 10 مرات نظراً، و 10 مرات غيباً قبل الانتقال للتالية.",
+  "استمع للقارئ المفضل لديك يقرأ الصفحة قبل البدء في حفظها (التصحيح قبل الحفظ).",
+  "اربط نهاية الآية ببداية الآية التي تليها بقراءتهما معاً.",
+  "أفضل وقت للحفظ هو بعد صلاة الفجر حيث يكون الذهن صافياً.",
+  "راجع ما حفظته اليوم في صلواتك المفروضة والسّنن.",
+  "لا تحفظ صفحة جديدة إلا بعد إتقان الصفحة السابقة تماماً (نسبة خطأ 0%)."
+];
 
 export default function MemorizeScreen() {
   const router = useRouter();
@@ -58,6 +70,7 @@ export default function MemorizeScreen() {
   const [mode2, setMode2] = useState<'single' | 'range'>('single');
   const [rangeFrom, setRangeFrom] = useState(firstUnmemorized);
   const [rangeTo, setRangeTo] = useState(Math.min(firstUnmemorized + 4, 604));
+  const [showTips, setShowTips] = useState(false);
 
   const pageRecord = getPageRecord(currentPage);
   const surah = getSurahByPage(currentPage);
@@ -74,6 +87,7 @@ export default function MemorizeScreen() {
   }, [currentPage]);
 
   const handleMarkMemorized = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     markPageMemorized(currentPage);
     if (!sessionPages.includes(currentPage)) {
       setSessionPages(prev => [...prev, currentPage]);
@@ -82,6 +96,7 @@ export default function MemorizeScreen() {
   }, [currentPage, markPageMemorized, sessionPages, goNext]);
 
   const handleMarkStatus = useCallback((status: PageStatus) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     markPageStatus(currentPage, status);
   }, [currentPage, markPageStatus]);
 
@@ -112,12 +127,33 @@ export default function MemorizeScreen() {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={[styles.headerTitle, { color: c.gold }]}>جلسة الحفظ</Text>
-          <Text style={[styles.headerSub, { color: c.textSecondary }]}>{sessionPages.length} صفحة هذه الجلسة</Text>
+          <View style={styles.streakBadge}>
+            <Flame size={14} color="#FF9800" />
+            <Text style={[styles.streakText, { color: '#FF9800' }]}>{stats.currentStreak} يوم</Text>
+          </View>
         </View>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => setShowInfo(i => !i)}>
-          <Info size={22} color={c.text} />
-        </TouchableOpacity>
+        <View style={styles.headerRightActions}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowTips(true)}>
+            <Lightbulb size={22} color={c.gold} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowInfo(i => !i)}>
+            <Info size={22} color={c.text} />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Progress towards daily goal */}
+      {settings.dailyMemorizeTarget > 0 && (
+        <View style={[styles.goalBar, { backgroundColor: c.surfaceLight }]}>
+          <View style={[styles.goalFill, { backgroundColor: c.gold, width: `${Math.min(100, (stats.todayMemorized / settings.dailyMemorizeTarget) * 100)}%` }]} />
+          <View style={styles.goalTextWrap}>
+            <Target size={12} color={c.textSecondary} />
+            <Text style={[styles.goalText, { color: c.textSecondary }]}>
+              الهدف اليومي: {stats.todayMemorized} / {settings.dailyMemorizeTarget} صفحة
+            </Text>
+          </View>
+        </View>
+      )}
 
       {/* Mode Toggle */}
       <View style={[styles.modeBar, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
@@ -340,6 +376,29 @@ export default function MemorizeScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Expert Tips Modal */}
+      {showTips && (
+        <TouchableOpacity style={styles.tipsOverlay} activeOpacity={1} onPress={() => setShowTips(false)}>
+          <View style={[styles.tipsSheet, { backgroundColor: c.surface, paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.tipsHeader}>
+              <Lightbulb size={24} color={c.gold} />
+              <Text style={[styles.tipsTitle, { color: c.text }]}>نصائح الخبراء للحفظ المتقن</Text>
+            </View>
+            <ScrollView style={styles.tipsList} showsVerticalScrollIndicator={false}>
+              {EXPERT_TIPS.map((tip, i) => (
+                <View key={i} style={[styles.tipItem, { borderBottomColor: c.border }]}>
+                  <Text style={[styles.tipNumber, { color: c.gold }]}>{i + 1}</Text>
+                  <Text style={[styles.tipText, { color: c.text }]}>{tip}</Text>
+                </View>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={[styles.tipsCloseBtn, { backgroundColor: c.surfaceLight }]} onPress={() => setShowTips(false)}>
+              <Text style={[styles.tipsCloseBtnText, { color: c.text }]}>حسناً، فهمت</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -366,7 +425,18 @@ const styles = StyleSheet.create({
   headerBtn: { padding: 8 },
   headerCenter: { alignItems: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700' },
-  headerSub: { fontSize: 12, marginTop: 2 },
+  headerRightActions: { flexDirection: 'row', alignItems: 'center' },
+  streakBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  streakText: { fontSize: 12, fontWeight: '700' },
+  goalBar: {
+    height: 24,
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  goalFill: { position: 'absolute', left: 0, top: 0, bottom: 0, opacity: 0.3 },
+  goalTextWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  goalText: { fontSize: 11, fontWeight: '600', zIndex: 1 },
   modeBar: {
     flexDirection: 'row',
     padding: 8,
@@ -501,4 +571,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   juzChipText: { fontSize: 12, fontWeight: '600' },
+  tipsOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end',
+  },
+  tipsSheet: {
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, maxHeight: height * 0.7,
+  },
+  tipsHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
+  tipsTitle: { fontSize: 18, fontWeight: '700' },
+  tipsList: { flexShrink: 1, marginBottom: 16 },
+  tipItem: {
+    flexDirection: 'row', gap: 12, paddingVertical: 12,
+    borderBottomWidth: 1, alignItems: 'flex-start',
+  },
+  tipNumber: { fontSize: 16, fontWeight: '800', width: 20, textAlign: 'center' },
+  tipText: { flex: 1, fontSize: 14, lineHeight: 22 },
+  tipsCloseBtn: { padding: 16, borderRadius: 12, alignItems: 'center' },
+  tipsCloseBtnText: { fontSize: 15, fontWeight: '700' },
 });

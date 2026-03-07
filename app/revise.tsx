@@ -1,34 +1,36 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Dimensions,
-  ScrollView,
-  Alert,
-} from 'react-native';
-import { Image } from 'expo-image';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import {
-  ArrowLeft,
-  RefreshCw,
-  CheckCircle2,
-  AlertTriangle,
-  ThumbsUp,
-  Zap,
-  SkipForward,
-  Trophy,
-  BookOpen,
-  Clock,
-  Filter,
-} from 'lucide-react-native';
-import { StatusBar } from 'expo-status-bar';
+import { PageRecord, RevisionQuality, useHifz } from '@/contexts/HifzContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useHifz, PageRecord, RevisionQuality } from '@/contexts/HifzContext';
 import { mushafPages } from '@/data/mushafAssets';
-import { getSurahByPage, getJuzByPage } from '@/data/quranData';
+import { getJuzByPage, getSurahByPage } from '@/data/quranData';
+import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import {
+    AlertTriangle,
+    ArrowLeft,
+    BookOpen,
+    BrainCircuit,
+    Clock,
+    Filter,
+    Flame,
+    RefreshCw,
+    SkipForward,
+    Target,
+    ThumbsUp,
+    Trophy,
+    Zap
+} from 'lucide-react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+    Dimensions,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
@@ -41,11 +43,19 @@ const QUALITY_CONFIG = [
   { quality: 'easy' as RevisionQuality, label: 'سهلة', icon: Zap, color: '#4CAF50', bg: '#4CAF5020', desc: 'حفظتها جيداً' },
 ];
 
+const SPACED_REPETITION_INFO = [
+  { title: "المراجعة المتباعدة", desc: "نظام ذكي يحدد موعد المراجعة بناءً على مدى إتقانك للصفحة." },
+  { title: "ممتاز (بعد أسبوعين)", desc: "عندما تقرأ الصفحة دون أي خطأ أو تردد. سيزيد الفاصل الزمني للمراجعة القادمة." },
+  { title: "جيد (بعد 3 أيام)", desc: "عندما تقرأ الصفحة مع بعض التردد المحدود أو خطأ واحد تداركته بسرعة." },
+  { title: "صعب (غداً)", desc: "عندما تخطئ عدة أخطاء أو تتردد كثيراً. ستراجعها قريباً لتثبيتها." },
+  { title: "نسيت (اليوم)", desc: "عندما تعجز عن تذكر الصفحة أو تخطئ في أكثر من سطر. تحتاج لمراجعتها فوراً." }
+];
+
 export default function ReviseScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors: c, mode } = useTheme();
-  const { getPagesForRevision, getOverduePages, recordRevision, pages, getPageRecord } = useHifz();
+  const { getPagesForRevision, getOverduePages, recordRevision, pages, getPageRecord, settings, stats } = useHifz();
 
   const [filterMode, setFilterMode] = useState<FilterMode>('due');
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -53,6 +63,7 @@ export default function ReviseScreen() {
   const [sessionResults, setSessionResults] = useState<{ page: number; quality: RevisionQuality }[]>([]);
   const [sessionDone, setSessionDone] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
+  const [showTips, setShowTips] = useState(false);
 
   const revisionList = useMemo((): PageRecord[] => {
     if (filterMode === 'due') return getPagesForRevision();
@@ -67,6 +78,9 @@ export default function ReviseScreen() {
 
   const handleQuality = useCallback((quality: RevisionQuality) => {
     if (!currentRecord) return;
+    
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     recordRevision(currentRecord.pageNum, quality);
     setSessionResults(prev => [...prev, { page: currentRecord.pageNum, quality }]);
     
@@ -79,6 +93,7 @@ export default function ReviseScreen() {
   }, [currentRecord, currentIndex, revisionList, recordRevision]);
 
   const handleSkip = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (currentIndex >= revisionList.length - 1) {
       setSessionDone(true);
     } else {
@@ -206,14 +221,33 @@ export default function ReviseScreen() {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={[styles.headerTitle, { color: c.gold }]}>جلسة المراجعة</Text>
-          <Text style={[styles.headerSub, { color: c.textSecondary }]}>
-            {currentIndex + 1} / {revisionList.length}
-          </Text>
+          <View style={styles.streakBadge}>
+            <Flame size={14} color="#FF9800" />
+            <Text style={[styles.streakText, { color: '#FF9800' }]}>{stats.currentStreak} يوم</Text>
+          </View>
         </View>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => setShowFilter(s => !s)}>
-          <Filter size={22} color={c.text} />
-        </TouchableOpacity>
+        <View style={styles.headerRightActions}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowTips(true)}>
+            <BrainCircuit size={22} color={c.gold} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowFilter(s => !s)}>
+            <Filter size={22} color={c.text} />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Progress towards daily goal */}
+      {settings.dailyReviseTarget > 0 && (
+        <View style={[styles.goalBar, { backgroundColor: c.surfaceLight }]}>
+          <View style={[styles.goalFill, { backgroundColor: c.success, width: `${Math.min(100, (stats.todayRevised / settings.dailyReviseTarget) * 100)}%` }]} />
+          <View style={styles.goalTextWrap}>
+            <Target size={12} color={c.textSecondary} />
+            <Text style={[styles.goalText, { color: c.textSecondary }]}>
+              الهدف اليومي: {stats.todayRevised} / {settings.dailyReviseTarget} صفحة
+            </Text>
+          </View>
+        </View>
+      )}
 
       {/* Progress */}
       <View style={[styles.progressBarBg, { backgroundColor: c.surfaceLight }]}>
@@ -312,6 +346,32 @@ export default function ReviseScreen() {
 
       {/* Filter Sheet */}
       {showFilter && <FilterSheet filterMode={filterMode} setFilterMode={(f) => { setFilterMode(f); restartSession(); }} onClose={() => setShowFilter(false)} c={c} />}
+
+      {/* Spaced Repetition Info Modal */}
+      {showTips && (
+        <TouchableOpacity style={styles.tipsOverlay} activeOpacity={1} onPress={() => setShowTips(false)}>
+          <View style={[styles.tipsSheet, { backgroundColor: c.surface, paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.tipsHeader}>
+              <BrainCircuit size={24} color={c.gold} />
+              <Text style={[styles.tipsTitle, { color: c.text }]}>نظام المراجعة المتباعدة</Text>
+            </View>
+            <ScrollView style={styles.tipsList} showsVerticalScrollIndicator={false}>
+              {SPACED_REPETITION_INFO.map((tip, i) => (
+                <View key={i} style={[styles.tipItem, { borderBottomColor: c.border }]}>
+                  <Text style={[styles.tipNumber, { color: c.gold }]}>{i === 0 ? 'ℹ️' : i}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.tipTitleText, { color: c.text }]}>{tip.title}</Text>
+                    <Text style={[styles.tipDescText, { color: c.textSecondary }]}>{tip.desc}</Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={[styles.tipsCloseBtn, { backgroundColor: c.surfaceLight }]} onPress={() => setShowTips(false)}>
+              <Text style={[styles.tipsCloseBtnText, { color: c.text }]}>حسناً، فهمت</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -372,7 +432,18 @@ const styles = StyleSheet.create({
   headerBtn: { padding: 8 },
   headerCenter: { alignItems: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700' },
-  headerSub: { fontSize: 12, marginTop: 2 },
+  headerRightActions: { flexDirection: 'row', alignItems: 'center' },
+  streakBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  streakText: { fontSize: 12, fontWeight: '700' },
+  goalBar: {
+    height: 24,
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  goalFill: { position: 'absolute', left: 0, top: 0, bottom: 0, opacity: 0.3 },
+  goalTextWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  goalText: { fontSize: 11, fontWeight: '600', zIndex: 1 },
   progressBarBg: { height: 3 },
   progressBarFill: { height: '100%' },
   overdueWarning: {
@@ -509,4 +580,24 @@ const styles = StyleSheet.create({
   filterOption: { borderRadius: 12, padding: 14 },
   filterOptionLabel: { fontSize: 14, fontWeight: '600' },
   filterOptionDesc: { fontSize: 12, marginTop: 3 },
+  tipsOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end',
+  },
+  tipsSheet: {
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, maxHeight: height * 0.7,
+  },
+  tipsHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
+  tipsTitle: { fontSize: 18, fontWeight: '700' },
+  tipsList: { flexShrink: 1, marginBottom: 16 },
+  tipItem: {
+    flexDirection: 'row', gap: 12, paddingVertical: 12,
+    borderBottomWidth: 1, alignItems: 'flex-start',
+  },
+  tipNumber: { fontSize: 16, fontWeight: '800', width: 20, textAlign: 'center' },
+  tipTitleText: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  tipDescText: { fontSize: 13, lineHeight: 20 },
+  tipsCloseBtn: { padding: 16, borderRadius: 12, alignItems: 'center' },
+  tipsCloseBtnText: { fontSize: 15, fontWeight: '700' },
 });
