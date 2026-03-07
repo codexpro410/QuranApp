@@ -56,7 +56,7 @@ export default function DoaaSplash({ onComplete }: { onComplete: () => void }) {
 
     const timer = setTimeout(() => {
       onComplete();
-    }, 4500);
+    }, 3500);
 
     return () => clearTimeout(timer);
   }, []);
