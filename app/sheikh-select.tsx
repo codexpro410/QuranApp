@@ -1,18 +1,22 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import { useTheme } from '@/contexts/ThemeContext';
+import { Sheikh, getSheikhsForSurah, sheikhData } from '@/data/sheikhData';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Check, Search, User, X } from 'lucide-react-native';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  TextInput,
+    SectionList,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { X, Search, Check, User } from 'lucide-react-native';
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useTheme } from '@/contexts/ThemeContext';
-import { sheikhData, Sheikh, getSheikhsForSurah } from '@/data/sheikhData';
+
+// Fixed item heights for getItemLayout
+const SHEIKH_ITEM_HEIGHT = 74;
+const SECTION_HEADER_HEIGHT = 44;
 
 export default function SheikhSelectScreen() {
   const router = useRouter();
@@ -25,38 +29,31 @@ export default function SheikhSelectScreen() {
 
   React.useEffect(() => {
     AsyncStorage.getItem("ACTIVE_SHEIKH").then(v => {
-      if (v) {
-        const sheikh = JSON.parse(v);
-        setSelectedSheikh(sheikh.id);
-      }
+      if (v) setSelectedSheikh(JSON.parse(v).id);
     });
   }, []);
 
   const sheikhs = useMemo(() => {
-    let list = sheikhData;
-    
-    if (surahNumber) {
-      list = getSheikhsForSurah(parseInt(surahNumber, 10));
-    }
-
+    let list = surahNumber ? getSheikhsForSurah(parseInt(surahNumber, 10)) : sheikhData;
     list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-
     if (searchQuery.trim()) {
-      const query = searchQuery.trim();
-      list = list.filter(s => s.name.includes(query));
+      const q = searchQuery.trim();
+      list = list.filter(s => s.name.includes(q));
     }
-
     return list;
   }, [surahNumber, searchQuery]);
 
-  const groupedSheikhs = useMemo(() => {
-    const groups: { [letter: string]: Sheikh[] } = {};
-    sheikhs.forEach(sheikh => {
+  // Build SectionList sections in one pass
+  const sections = useMemo(() => {
+    const groups: Record<string, Sheikh[]> = {};
+    for (const sheikh of sheikhs) {
       const letter = sheikh.letter || sheikh.name.charAt(0);
       if (!groups[letter]) groups[letter] = [];
       groups[letter].push(sheikh);
-    });
-    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0], 'ar'));
+    }
+    return Object.entries(groups)
+      .sort((a, b) => a[0].localeCompare(b[0], 'ar'))
+      .map(([title, data]) => ({ title, data }));
   }, [sheikhs]);
 
   const handleSelectSheikh = useCallback(async (sheikh: Sheikh) => {
@@ -65,12 +62,12 @@ export default function SheikhSelectScreen() {
     router.back();
   }, [router]);
 
-  const renderSheikh = useCallback(({ item }: { item: Sheikh }) => {
+  const renderItem = useCallback(({ item }: { item: Sheikh }) => {
     const isSelected = selectedSheikh === item.id;
     return (
       <TouchableOpacity
         style={[
-          styles.sheikhItem, 
+          styles.sheikhItem,
           { backgroundColor: colors.surface, borderColor: isSelected ? colors.gold : colors.border }
         ]}
         onPress={() => handleSelectSheikh(item)}
@@ -93,21 +90,19 @@ export default function SheikhSelectScreen() {
     );
   }, [selectedSheikh, colors, handleSelectSheikh]);
 
-  const renderSection = useCallback(({ item }: { item: [string, Sheikh[]] }) => {
-    const [letter, sheikhsList] = item;
-    return (
-      <View style={styles.section}>
-        <View style={[styles.sectionHeader, { backgroundColor: colors.surfaceLight }]}>
-          <Text style={[styles.sectionLetter, { color: colors.gold }]}>{letter}</Text>
-        </View>
-        {sheikhsList.map(sheikh => (
-          <View key={sheikh.id}>
-            {renderSheikh({ item: sheikh })}
-          </View>
-        ))}
-      </View>
-    );
-  }, [colors, renderSheikh]);
+  const renderSectionHeader = useCallback(({ section }: { section: { title: string } }) => (
+    <View style={[styles.sectionHeader, { backgroundColor: colors.surfaceLight }]}>
+      <Text style={[styles.sectionLetter, { color: colors.gold }]}>{section.title}</Text>
+    </View>
+  ), [colors]);
+
+  const getItemLayout = useCallback((_: any, index: number) => ({
+    length: SHEIKH_ITEM_HEIGHT + 8,
+    offset: (SHEIKH_ITEM_HEIGHT + 8) * index,
+    index,
+  }), []);
+
+  const keyExtractor = useCallback((item: Sheikh) => item.id, []);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
@@ -115,12 +110,10 @@ export default function SheikhSelectScreen() {
         <TouchableOpacity style={[styles.closeButton, { backgroundColor: colors.surface }]} onPress={() => router.back()}>
           <X size={22} color={colors.text} />
         </TouchableOpacity>
-
         <View style={styles.headerTitle}>
           <User size={20} color={colors.gold} />
           <Text style={[styles.headerText, { color: colors.text }]}>اختيار القارئ</Text>
         </View>
-
         <View style={styles.placeholder} />
       </View>
 
@@ -142,12 +135,18 @@ export default function SheikhSelectScreen() {
         )}
       </View>
 
-      <FlatList
-        data={groupedSheikhs}
-        keyExtractor={(item) => item[0]}
-        renderItem={renderSection}
+      <SectionList
+        sections={sections}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        renderSectionHeader={renderSectionHeader}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        stickySectionHeadersEnabled={false}
+        initialNumToRender={15}
+        maxToRenderPerBatch={10}
+        windowSize={8}
+        removeClippedSubviews
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
@@ -161,109 +160,46 @@ export default function SheikhSelectScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1,
   },
-  closeButton: {
-    padding: 8,
-    borderRadius: 20,
-  },
-  headerTitle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerText: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  placeholder: {
-    width: 40,
-  },
+  closeButton: { padding: 8, borderRadius: 20 },
+  headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerText: { fontSize: 18, fontWeight: '700' },
+  placeholder: { width: 40 },
   searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginVertical: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
-    gap: 8,
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: 16, marginVertical: 12,
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderRadius: 14, gap: 8,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    textAlign: 'right',
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  section: {
-    marginBottom: 8,
-  },
+  searchInput: { flex: 1, fontSize: 16, textAlign: 'right' },
+  listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   sectionHeader: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+    paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 8, marginBottom: 8, height: SECTION_HEADER_HEIGHT,
+    justifyContent: 'center',
   },
-  sectionLetter: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
+  sectionLetter: { fontSize: 16, fontWeight: '700' },
   sheikhItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 2,
+    flexDirection: 'row', alignItems: 'center',
+    borderRadius: 14, padding: 12, marginBottom: 8,
+    borderWidth: 2, height: SHEIKH_ITEM_HEIGHT,
   },
   sheikhIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
   },
-  sheikhInfo: {
-    flex: 1,
-    marginHorizontal: 12,
-    alignItems: 'flex-end',
-  },
-  sheikhName: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sheikhRewaya: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  sheikhCount: {
-    fontSize: 11,
-    marginTop: 2,
-  },
+  sheikhInfo: { flex: 1, marginHorizontal: 12, alignItems: 'flex-end' },
+  sheikhName: { fontSize: 16, fontWeight: '600' },
+  sheikhRewaya: { fontSize: 12, marginTop: 2 },
+  sheikhCount: { fontSize: 11, marginTop: 2 },
   checkIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
   },
-  emptyContainer: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-  },
+  emptyContainer: { padding: 40, alignItems: 'center' },
+  emptyText: { fontSize: 16 },
 });

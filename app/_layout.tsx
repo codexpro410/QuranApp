@@ -1,25 +1,18 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { View, Text, StyleSheet, Animated, Dimensions } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 
-import { ThemeProvider } from "@/contexts/ThemeContext";
-import { BookmarkProvider } from "@/contexts/BookmarkContext";
 import { AudioProvider } from "@/contexts/AudioContext";
 import { AzkarProvider } from "@/contexts/AzkarContext";
-import { SebhaProvider } from "@/contexts/SebhaContext";
-import { QuranProvider } from "@/contexts/QuranContext";
-import DoaaSplash from "./splash-doaa";
+import { BookmarkProvider } from "@/contexts/BookmarkContext";
 import { HifzProvider } from "@/contexts/HifzContext";
 import { PageColorProvider } from "@/contexts/PageColorContext";
-// SplashScreen.preventAutoHideAsync();
-
-
-
-const queryClient = new QueryClient();
+import { PrayerProvider } from "@/contexts/PrayerContext";
+import { QuranProvider } from "@/contexts/QuranContext";
+import { SebhaProvider } from "@/contexts/SebhaContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
+import DoaaSplash from "./splash-doaa";
 
 function RootLayoutNav() {
   return (
@@ -40,6 +33,7 @@ function RootLayoutNav() {
       <Stack.Screen name="hifz" options={{ headerShown: false }} />
       <Stack.Screen name="memorize" options={{ headerShown: false }} />
       <Stack.Screen name="revise" options={{ headerShown: false }} />
+      <Stack.Screen name="prayer-times" options={{ headerShown: false, presentation: 'modal' }} />
     </Stack>
   );
 }
@@ -52,7 +46,6 @@ export default function RootLayout() {
   }, []);
 
   return (
-  <QueryClientProvider client={queryClient}>
     <PageColorProvider>
     <HifzProvider>
     <QuranProvider>
@@ -61,16 +54,15 @@ export default function RootLayout() {
         <AudioProvider>
           <AzkarProvider>
             <SebhaProvider>
-              <GestureHandlerRootView style={{ flex: 1 }}>
-                
+              <PrayerProvider>
+                <GestureHandlerRootView style={{ flex: 1 }}>
                   {showSplash ? (
-                      // <DoaaSplash onComplete={() => setShowSplash(false)} />
-                      <DoaaSplash onComplete={() => setShowSplash(false)}/>
-                    ) : (
-                      <RootLayoutNav /> // يظهر بعد انتهاء الـ splash
-                    )}
-
-              </GestureHandlerRootView>
+                    <DoaaSplash onComplete={() => setShowSplash(false)} />
+                  ) : (
+                    <RootLayoutNav />
+                  )}
+                </GestureHandlerRootView>
+              </PrayerProvider>
             </SebhaProvider>
           </AzkarProvider>
         </AudioProvider>
@@ -79,6 +71,5 @@ export default function RootLayout() {
     </QuranProvider>
     </HifzProvider>
     </PageColorProvider>
-  </QueryClientProvider>
-);
+  );
 }

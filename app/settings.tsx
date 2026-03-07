@@ -1,23 +1,49 @@
-import React from 'react';
+import { useHifz } from '@/contexts/HifzContext';
+import { PageColorMode, usePageColor } from '@/contexts/PageColorContext';
+import { PrayerName, usePrayer } from '@/contexts/PrayerContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import * as Notifications from 'expo-notifications';
+import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
+  Bell,
+  BookOpen,
+  Clock,
+  Eye,
+  Info,
+  Maximize,
+  Moon, Sun,
+  Sunrise,
+  Type,
+  X
+} from 'lucide-react-native';
+import React, { useCallback } from 'react';
+import {
+  Alert,
   ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { X, Moon, Sun, Info, Eye, BookOpen, Type, Maximize } from 'lucide-react-native';
-import { StatusBar } from 'expo-status-bar';
-import { useTheme } from '@/contexts/ThemeContext';
-import { usePageColor, PageColorMode } from '@/contexts/PageColorContext';
 
-const PAGE_COLOR_OPTIONS: { mode: PageColorMode; label: string; bg: string; border: string }[] = [
-  { mode: 'white', label: 'أبيض',  bg: '#ffffff', border: '#e0e0e0' },
-  { mode: 'paper', label: 'ورقي',  bg: '#fff8e1', border: '#f0c040' },
-  { mode: 'dark',  label: 'داكن',  bg: '#988383ff', border: '#ae7c7cff'    },
+const PRAYER_ORDER: PrayerName[] = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
+const PRAYER_LABELS: Record<PrayerName, string> = {
+  fajr: 'الفجر', dhuhr: 'الظهر', asr: 'العصر', maghrib: 'المغرب', isha: 'العشاء',
+};
+
+const PAGE_COLOR_OPTIONS: { mode: PageColorMode; label: string; bg: string; textColor: string; borderColor: string }[] = [
+  { mode: 'white', label: 'أبيض',  bg: '#ffffff', textColor: '#333333', borderColor: '#cccccc' },
+  { mode: 'paper', label: 'ورقي',  bg: '#f5e6c8', textColor: '#4a3000', borderColor: '#c8a050' },
+  { mode: 'dark',  label: 'داكن',  bg: '#2c2c3a', textColor: '#e8d5b7', borderColor: '#5a4a6a' },
 ];
+
+async function requestNotificationPermission(): Promise<boolean> {
+  const { status } = await Notifications.requestPermissionsAsync();
+  return status === 'granted';
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -28,6 +54,36 @@ export default function SettingsScreen() {
     mushafWidth, mushafHeight,
     saveMushafWidth, saveMushafHeight,
   } = usePageColor();
+  const { settings: hifzSettings, updateSettings: updateHifz } = useHifz();
+  const { settings: prayerSettings, updateSettings: updatePrayer, prayers } = usePrayer();
+
+  const toggleHifzNotifications = useCallback(async (val: boolean) => {
+    if (val) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        Alert.alert('الإذن مرفوض', 'يرجى تفعيل الإشعارات من إعدادات الجهاز');
+        return;
+      }
+    }
+    updateHifz({ notificationsEnabled: val });
+  }, [updateHifz]);
+
+  const togglePrayerNotifications = useCallback(async (val: boolean) => {
+    if (val) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        Alert.alert('الإذن مرفوض', 'يرجى تفعيل الإشعارات من إعدادات الجهاز');
+        return;
+      }
+    }
+    updatePrayer({ enabled: val });
+  }, [updatePrayer]);
+
+  const togglePrayerItem = useCallback((name: PrayerName, val: boolean) => {
+    updatePrayer({
+      enabledPrayers: { ...prayerSettings.enabledPrayers, [name]: val },
+    });
+  }, [prayerSettings.enabledPrayers, updatePrayer]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
@@ -87,17 +143,14 @@ export default function SettingsScreen() {
                 onPress={() => setPageMode(opt.mode)}
                 style={[
                   styles.colorOption,
-                  { backgroundColor: opt.bg, borderColor: pageMode === opt.mode ? colors.gold : opt.border },
+                  { backgroundColor: opt.bg, borderColor: pageMode === opt.mode ? colors.gold : opt.borderColor },
                   pageMode === opt.mode && styles.colorOptionSelected,
                 ]}
               >
-                <Text style={[
-                  styles.colorOptionText,
-                  { color: opt.mode === 'dark' ? '#fff' : '#333' },
-                  pageMode === opt.mode && { fontWeight: '700' },
-                ]}>
+                <Text style={[styles.colorOptionText, { color: opt.textColor, fontWeight: pageMode === opt.mode ? '700' : '500' }]}>
                   {opt.label}
                 </Text>
+                <Text style={[styles.colorPreviewChar, { color: opt.textColor }]}>بسم</Text>
                 {pageMode === opt.mode && (
                   <View style={[styles.colorOptionDot, { backgroundColor: colors.gold }]} />
                 )}
@@ -110,7 +163,6 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>أبعاد صفحة المصحف</Text>
 
         <View style={[styles.settingItem, { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: 'column', alignItems: 'flex-start', gap: 20 }]}>
-
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={[styles.settingIcon, { backgroundColor: colors.surfaceLight }]}>
               <Maximize size={22} color={colors.gold} />
@@ -121,104 +173,172 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {/* Width control */}
           <View style={{ width: '100%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
               <Text style={[styles.settingTitle, { color: colors.text, fontSize: 14 }]}>العرض</Text>
               <Text style={{ color: colors.gold, fontSize: 14, fontWeight: '700' }}>{mushafWidth} px</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TouchableOpacity
-                style={[styles.dimBtn, { backgroundColor: colors.surfaceLight }]}
+              <TouchableOpacity style={[styles.dimBtn, { backgroundColor: colors.surfaceLight }]}
                 onPress={() => saveMushafWidth(Math.max(400, mushafWidth - 50))}
-                onLongPress={() => saveMushafWidth(Math.max(400, mushafWidth - 100))}
-              >
+                onLongPress={() => saveMushafWidth(Math.max(400, mushafWidth - 100))}>
                 <Text style={[styles.dimBtnText, { color: colors.text }]}>−</Text>
               </TouchableOpacity>
               <View style={[styles.dimTrack, { backgroundColor: colors.surfaceLight }]}>
-                <View style={[styles.dimFill, {
-                  backgroundColor: colors.gold,
-                  width: `${Math.round(((mushafWidth - 400) / 600) * 100)}%`,
-                }]} />
+                <View style={[styles.dimFill, { backgroundColor: colors.gold, width: `${Math.round(((mushafWidth - 400) / 600) * 100)}%` }]} />
               </View>
-              <TouchableOpacity
-                style={[styles.dimBtn, { backgroundColor: colors.surfaceLight }]}
+              <TouchableOpacity style={[styles.dimBtn, { backgroundColor: colors.surfaceLight }]}
                 onPress={() => saveMushafWidth(Math.min(1000, mushafWidth + 50))}
-                onLongPress={() => saveMushafWidth(Math.min(1000, mushafWidth + 100))}
-              >
+                onLongPress={() => saveMushafWidth(Math.min(1000, mushafWidth + 100))}>
                 <Text style={[styles.dimBtnText, { color: colors.text }]}>+</Text>
               </TouchableOpacity>
             </View>
-            {/* Quick presets */}
             <View style={styles.presetRow}>
               {[500, 650, 750, 900].map(v => (
-                <TouchableOpacity
-                  key={v}
-                  style={[styles.presetChip, {
-                    backgroundColor: mushafWidth === v ? colors.gold : colors.surfaceLight,
-                    borderColor: mushafWidth === v ? colors.gold : colors.border,
-                  }]}
-                  onPress={() => saveMushafWidth(v)}
-                >
+                <TouchableOpacity key={v} style={[styles.presetChip, {
+                  backgroundColor: mushafWidth === v ? colors.gold : colors.surfaceLight,
+                  borderColor: mushafWidth === v ? colors.gold : colors.border,
+                }]} onPress={() => saveMushafWidth(v)}>
                   <Text style={{ fontSize: 11, fontWeight: '600', color: mushafWidth === v ? '#fff' : colors.text }}>{v}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
-          {/* Height control */}
           <View style={{ width: '100%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
               <Text style={[styles.settingTitle, { color: colors.text, fontSize: 14 }]}>الارتفاع</Text>
               <Text style={{ color: colors.gold, fontSize: 14, fontWeight: '700' }}>{mushafHeight} px</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TouchableOpacity
-                style={[styles.dimBtn, { backgroundColor: colors.surfaceLight }]}
+              <TouchableOpacity style={[styles.dimBtn, { backgroundColor: colors.surfaceLight }]}
                 onPress={() => saveMushafHeight(Math.max(800, mushafHeight - 50))}
-                onLongPress={() => saveMushafHeight(Math.max(800, mushafHeight - 100))}
-              >
+                onLongPress={() => saveMushafHeight(Math.max(800, mushafHeight - 100))}>
                 <Text style={[styles.dimBtnText, { color: colors.text }]}>−</Text>
               </TouchableOpacity>
               <View style={[styles.dimTrack, { backgroundColor: colors.surfaceLight }]}>
-                <View style={[styles.dimFill, {
-                  backgroundColor: colors.gold,
-                  width: `${Math.round(((mushafHeight - 800) / 1200) * 100)}%`,
-                }]} />
+                <View style={[styles.dimFill, { backgroundColor: colors.gold, width: `${Math.round(((mushafHeight - 800) / 1200) * 100)}%` }]} />
               </View>
-              <TouchableOpacity
-                style={[styles.dimBtn, { backgroundColor: colors.surfaceLight }]}
+              <TouchableOpacity style={[styles.dimBtn, { backgroundColor: colors.surfaceLight }]}
                 onPress={() => saveMushafHeight(Math.min(2000, mushafHeight + 50))}
-                onLongPress={() => saveMushafHeight(Math.min(2000, mushafHeight + 100))}
-              >
+                onLongPress={() => saveMushafHeight(Math.min(2000, mushafHeight + 100))}>
                 <Text style={[styles.dimBtnText, { color: colors.text }]}>+</Text>
               </TouchableOpacity>
             </View>
-            {/* Quick presets */}
             <View style={styles.presetRow}>
               {[1000, 1200, 1437, 1700].map(v => (
-                <TouchableOpacity
-                  key={v}
-                  style={[styles.presetChip, {
-                    backgroundColor: mushafHeight === v ? colors.gold : colors.surfaceLight,
-                    borderColor: mushafHeight === v ? colors.gold : colors.border,
-                  }]}
-                  onPress={() => saveMushafHeight(v)}
-                >
+                <TouchableOpacity key={v} style={[styles.presetChip, {
+                  backgroundColor: mushafHeight === v ? colors.gold : colors.surfaceLight,
+                  borderColor: mushafHeight === v ? colors.gold : colors.border,
+                }]} onPress={() => saveMushafHeight(v)}>
                   <Text style={{ fontSize: 11, fontWeight: '600', color: mushafHeight === v ? '#fff' : colors.text }}>{v}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
-          {/* Reset to defaults */}
-          <TouchableOpacity
-            style={[styles.resetBtn, { borderColor: colors.border }]}
-            onPress={() => { saveMushafWidth(750); saveMushafHeight(1437); }}
-          >
+          <TouchableOpacity style={[styles.resetBtn, { borderColor: colors.border }]}
+            onPress={() => { saveMushafWidth(750); saveMushafHeight(1437); }}>
             <Text style={[styles.resetBtnText, { color: colors.textSecondary }]}>↺ إعادة الضبط الافتراضي (750 × 1437)</Text>
           </TouchableOpacity>
+        </View>
 
+        {/* ── إشعارات القرآن والحفظ ── */}
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>الإشعارات</Text>
+
+        <View style={[styles.settingItem, { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: 'column', gap: 0 }]}>
+          <View style={styles.switchRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+              <View style={[styles.settingIcon, { backgroundColor: colors.surfaceLight }]}>
+                <Bell size={20} color={colors.gold} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>إشعارات الحفظ والمراجعة</Text>
+                <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>تذكير يومي بمراجعة المحفوظات</Text>
+              </View>
+            </View>
+            <Switch
+              value={hifzSettings.notificationsEnabled}
+              onValueChange={toggleHifzNotifications}
+              trackColor={{ false: colors.surfaceLight, true: colors.gold + '80' }}
+              thumbColor={hifzSettings.notificationsEnabled ? colors.gold : colors.textSecondary}
+            />
+          </View>
+        </View>
+
+        {/* ── مواقيت الصلاة ── */}
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>مواقيت الصلاة</Text>
+
+        <View style={[styles.settingItem, { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: 'column', gap: 0 }]}>
+          <View style={styles.switchRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+              <View style={[styles.settingIcon, { backgroundColor: colors.surfaceLight }]}>
+                <Clock size={20} color={colors.gold} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.settingTitle, { color: colors.text }]}>تفعيل مواقيت الصلاة</Text>
+                <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>{prayerSettings.cityName}</Text>
+              </View>
+            </View>
+            <Switch
+              value={prayerSettings.enabled}
+              onValueChange={togglePrayerNotifications}
+              trackColor={{ false: colors.surfaceLight, true: colors.gold + '80' }}
+              thumbColor={prayerSettings.enabled ? colors.gold : colors.textSecondary}
+            />
+          </View>
+
+          {prayerSettings.enabled && (
+            <>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+              <View style={styles.switchRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                  <View style={[styles.settingIcon, { backgroundColor: '#FF980020' }]}>
+                    <Sunrise size={20} color='#FF9800' />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.settingTitle, { color: colors.text }]}>تنبيه 15 دقيقة قبل الأذان</Text>
+                    <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>إشعار تذكير قبل كل صلاة</Text>
+                  </View>
+                </View>
+                <Switch
+                  value={prayerSettings.notifyBefore15}
+                  onValueChange={val => updatePrayer({ notifyBefore15: val })}
+                  trackColor={{ false: colors.surfaceLight, true: '#FF980080' }}
+                  thumbColor={prayerSettings.notifyBefore15 ? '#FF9800' : colors.textSecondary}
+                />
+              </View>
+
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+              <Text style={[styles.prayerSubTitle, { color: colors.textSecondary }]}>تفعيل إشعار لكل صلاة:</Text>
+
+              {PRAYER_ORDER.map(name => {
+                const prayer = prayers.find(p => p.name === name);
+                return (
+                  <View key={name} style={styles.prayerRow}>
+                    <Text style={[styles.prayerName, { color: colors.text }]}>{PRAYER_LABELS[name]}</Text>
+                    {prayer && <Text style={[styles.prayerTime, { color: colors.gold }]}>{prayer.timeStr}</Text>}
+                    <Switch
+                      value={prayerSettings.enabledPrayers[name]}
+                      onValueChange={val => togglePrayerItem(name, val)}
+                      trackColor={{ false: colors.surfaceLight, true: colors.gold + '80' }}
+                      thumbColor={prayerSettings.enabledPrayers[name] ? colors.gold : colors.textSecondary}
+                    />
+                  </View>
+                );
+              })}
+
+              <TouchableOpacity
+                style={[styles.viewPrayersBtn, { backgroundColor: colors.gold }]}
+                onPress={() => router.push('/prayer-times' as any)}
+              >
+                <Clock size={16} color="#000" />
+                <Text style={styles.viewPrayersBtnText}>عرض مواقيت اليوم</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         {/* ── ميزات القراءة ── */}
@@ -331,27 +451,23 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderRadius: 14,
     borderWidth: 2,
-    gap: 6,
+    gap: 4,
   },
   colorOptionSelected: { borderWidth: 2.5 },
-  colorOptionText: { fontSize: 14 },
+  colorOptionText: { fontSize: 13, fontWeight: '500' },
+  colorPreviewChar: { fontSize: 16, fontWeight: '700' },
   colorOptionDot: { width: 8, height: 8, borderRadius: 4 },
-  // dimension controls
   dimBtn: {
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
   },
   dimBtnText: { fontSize: 22, fontWeight: '700', lineHeight: 26 },
-  dimTrack: {
-    flex: 1, height: 8, borderRadius: 4, overflow: 'hidden',
-  },
+  dimTrack: { flex: 1, height: 8, borderRadius: 4, overflow: 'hidden' },
   dimFill: { height: '100%', borderRadius: 4 },
-  presetRow: {
-    flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap',
-  },
+  presetRow: { flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' },
   presetChip: {
     paddingHorizontal: 12, paddingVertical: 6,
     borderRadius: 12, borderWidth: 1,
@@ -361,6 +477,34 @@ const styles = StyleSheet.create({
     borderWidth: 1, alignItems: 'center',
   },
   resetBtnText: { fontSize: 13 },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+  },
+  divider: { height: 1, marginVertical: 4, marginHorizontal: -4 },
+  prayerSubTitle: { fontSize: 12, fontWeight: '600', paddingVertical: 8, paddingHorizontal: 4 },
+  prayerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  prayerName: { fontSize: 15, fontWeight: '600', flex: 1 },
+  prayerTime: { fontSize: 13, fontWeight: '600', marginRight: 12 },
+  viewPrayersBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  viewPrayersBtnText: { fontSize: 14, fontWeight: '700', color: '#000' },
   aboutCard: {
     padding: 20, borderRadius: 16, borderWidth: 1,
     marginTop: 24, alignItems: 'center',
