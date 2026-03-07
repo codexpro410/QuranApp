@@ -3,7 +3,7 @@
     "name": "QuranApp",
     "slug": "QuranApp",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "quranapp",
     "assetBundlePatterns": [
@@ -24,6 +24,7 @@
     },
     "android": {
       "backgroundColor": "#000000",
+      "screenOrientation": "unspecified",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -51,7 +52,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      // "expo-image"
     ],
     "experiments": {
       "typedRoutes": true,

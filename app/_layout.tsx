@@ -14,6 +14,7 @@ import { SebhaProvider } from "@/contexts/SebhaContext";
 import { QuranProvider } from "@/contexts/QuranContext";
 import DoaaSplash from "./splash-doaa";
 import { HifzProvider } from "@/contexts/HifzContext";
+import { PageColorProvider } from "@/contexts/PageColorContext";
 // SplashScreen.preventAutoHideAsync();
 
 
@@ -23,7 +24,7 @@ const queryClient = new QueryClient();
 function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="index" options={{ headerShown: false, orientation: 'all' }} />
       <Stack.Screen name="azkar" options={{ headerShown: false }} />
       <Stack.Screen name="more" options={{ headerShown: false }} />
       <Stack.Screen name="tafsir" options={{ headerShown: false, presentation: 'card' }} />
@@ -52,6 +53,7 @@ export default function RootLayout() {
 
   return (
   <QueryClientProvider client={queryClient}>
+    <PageColorProvider>
     <HifzProvider>
     <QuranProvider>
     <ThemeProvider>
@@ -76,6 +78,7 @@ export default function RootLayout() {
     </ThemeProvider>
     </QuranProvider>
     </HifzProvider>
+    </PageColorProvider>
   </QueryClientProvider>
 );
 }
