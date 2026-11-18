@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
+
 export type PrayerName = 'fajr' | 'dhuhr' | 'asr' | 'maghrib' | 'isha';
 
 const PRAYER_NAMES_AR: Record<PrayerName, string> = {
@@ -74,6 +76,24 @@ const DEFAULT_SETTINGS: PrayerSettings = {
 };
 
 const STORAGE_KEY = 'prayer_settings_v2';
+
+// ── Notifications lazy loader ─────────────────────────────────────────────────
+// expo-notifications cannot be loaded in Expo Go on Android (SDK 53+).
+// Loading it at module scope throws immediately, so we import it on demand.
+const canUseNotifications =
+  !(Constants.appOwnership === 'expo' && Platform.OS === 'android');
+
+type NotificationsModule = typeof import('expo-notifications');
+
+let NotificationsPromise: Promise<NotificationsModule> | null = null;
+
+function getNotifications(): Promise<NotificationsModule> | null {
+  if (!canUseNotifications) return null;
+  if (!NotificationsPromise) {
+    NotificationsPromise = import('expo-notifications');
+  }
+  return NotificationsPromise;
+}
 
 // ── Sun math (Meeus) ──────────────────────────────────────────────────────────
 function toRad(d: number) { return d * Math.PI / 180; }
@@ -213,6 +233,9 @@ export function PrayerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { computePrayers(settings); }, [settings, computePrayers]);
 
   const scheduleNotifications = useCallback(async (s: PrayerSettings, list: PrayerTime[]) => {
+    const Notifications = await getNotifications();
+    if (!Notifications) return; // Expo Go on Android — skip silently
+
     await Notifications.cancelAllScheduledNotificationsAsync();
     if (!s.enabled) return;
 

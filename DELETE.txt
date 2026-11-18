@@ -1,0 +1,26 @@
+# احذف هذه الملفات من مشروعك (لم تعد مستخدمة):
+app/components/AudioPlayerBar.tsx
+app/components/BookmarkModal.tsx
+app/components/MenuModal.tsx
+app/components/MushafHeader.tsx
+app/components/MushafList.tsx
+app/modal.tsx
+components/external-link.tsx
+components/haptic-tab.tsx
+components/hello-wave.tsx
+components/parallax-scroll-view.tsx
+components/themed-text.tsx
+components/themed-view.tsx
+components/ui/collapsible.tsx
+components/ui/icon-symbol.ios.tsx
+components/ui/icon-symbol.tsx
+constants/theme.ts
+contexts/QuranContext.tsx
+data/tafsirData.ts
+hooks/use-color-scheme.ts
+hooks/use-color-scheme.web.ts
+hooks/use-theme-color.ts
+data/quran_with_tafsir.json   (كان مستورداً ولا يُستخدم — كان يبطّئ بدء التطبيق ويكبّر الحزمة)
+data/shaikh.json   (البيانات موجودة فعلاً داخل sheikhData.ts)
+scripts/reset-project.js   (اختياري: بقايا قالب Expo)
+script.js و tree.py   (اختياري)
