@@ -39,15 +39,16 @@ export const PAGE_STYLES: PageStyle[] = [
     useNightImages: false,
   },
   {
-    id: 'sepia',
-    label: 'سيبيا هادئ',
-    hint: 'أدفأ وأخف على العين في الضوء القوي',
-    screenBg: '#ECDEC0',
-    swatchBg: '#ECDEC0',
-    swatchText: '#3B2A12',
-    swatchBorder: '#C9B27F',
-    overlayColor: '#B6800D',
-    overlayOpacity: 0.26,
+    id: 'sepia', // المعرّف يبقى 'sepia' للحفاظ على اختيار المستخدمين المحفوظ
+    label: 'كريمي فاتح',
+    hint: 'أصفر كريمي فاتح #FEFDEB — قريب من المصحف المطبوع',
+    screenBg: '#FEFDEB',
+    swatchBg: '#FEFDEB',
+    swatchText: '#2B2A18',
+    swatchBorder: '#E3DFA8',
+    // أبيض×0.9 + #F5EB37×0.1 = #FEFDEB تماماً
+    overlayColor: '#F5EB37',
+    overlayOpacity: 0.1,
     useNightImages: false,
   },
   {

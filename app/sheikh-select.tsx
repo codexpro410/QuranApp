@@ -3,8 +3,10 @@ import { Sheikh, getSheikhsForSurah, sheikhData } from '@/data/sheikhData';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Check, Search, User, X } from 'lucide-react-native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useState } from 'react';
 import {
+    ActivityIndicator,
+    InteractionManager,
     SectionList,
     StyleSheet,
     Text,
@@ -25,7 +27,22 @@ export default function SheikhSelectScreen() {
   const { surahNumber } = useLocalSearchParams<{ surahNumber?: string }>();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedSheikh, setSelectedSheikh] = useState<string | null>(null);
+  // نؤجّل بناء القائمة حتى تنتهي حركة فتح الشاشة، وفي الأثناء نعرض مؤشر تحميل
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setReady(true));
+    return () => task.cancel();
+  }, []);
+
+  // بحث مؤجَّل قليلاً: المؤشر بجوار خانة البحث يظهر حتى تُحدَّث النتائج
+  useEffect(() => {
+    const t = setTimeout(() => startTransition(() => setDebouncedQuery(searchQuery)), 250);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+  const isSearching = searchQuery.trim() !== debouncedQuery.trim();
 
   React.useEffect(() => {
     AsyncStorage.getItem("ACTIVE_SHEIKH").then(v => {
@@ -33,15 +50,17 @@ export default function SheikhSelectScreen() {
     });
   }, []);
 
+  // الترتيب (الأثقل) يُحسب مرة واحدة فقط، والبحث يفلتر النتيجة الجاهزة
+  const sortedAll = useMemo(() => {
+    if (!ready) return [] as Sheikh[];
+    const list = surahNumber ? getSheikhsForSurah(parseInt(surahNumber, 10)) : sheikhData;
+    return [...list].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }, [ready, surahNumber]);
+
   const sheikhs = useMemo(() => {
-    let list = surahNumber ? getSheikhsForSurah(parseInt(surahNumber, 10)) : sheikhData;
-    list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim();
-      list = list.filter(s => s.name.includes(q));
-    }
-    return list;
-  }, [surahNumber, searchQuery]);
+    const q = debouncedQuery.trim();
+    return q ? sortedAll.filter(s => s.name.includes(q)) : sortedAll;
+  }, [sortedAll, debouncedQuery]);
 
   // Build SectionList sections in one pass
   const sections = useMemo(() => {
@@ -128,6 +147,7 @@ export default function SheikhSelectScreen() {
           autoCapitalize="none"
           autoCorrect={false}
         />
+        {isSearching && <ActivityIndicator size="small" color={colors.gold} />}
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
             <X size={18} color={colors.textSecondary} />
@@ -135,6 +155,12 @@ export default function SheikhSelectScreen() {
         )}
       </View>
 
+      {!ready ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator size="large" color={colors.gold} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary, marginTop: 12 }]}>جارٍ تحميل القرّاء...</Text>
+        </View>
+      ) : (
       <SectionList
         sections={sections}
         keyExtractor={keyExtractor}
@@ -155,6 +181,7 @@ export default function SheikhSelectScreen() {
           </View>
         }
       />
+      )}
     </View>
   );
 }
@@ -200,6 +227,7 @@ const styles = StyleSheet.create({
     width: 28, height: 28, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
   },
+  loadingBox: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80 },
   emptyContainer: { padding: 40, alignItems: 'center' },
   emptyText: { fontSize: 16 },
 });
