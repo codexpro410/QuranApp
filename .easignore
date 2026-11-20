@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Git and Expo cache
+.git/
+.expo/
+
+# Build folders
+android/
+ios/
+dist/
+web-build/
+
+# Temp files
+temp-archive/
+*.log

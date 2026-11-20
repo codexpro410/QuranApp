@@ -1,11 +1,14 @@
 import { JUZ_PAGES, PageStatus, useHifz } from '@/contexts/HifzContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { mushafPages } from '@/data/mushafAssets';
+import { PageTint } from '@/components/MushafPage';
+import { getPageStyle } from '@/constants/pageStyles';
+import { usePageColor } from '@/contexts/PageColorContext';
+import { getPageSource, hasNightPages } from '@/data/mushafAssets';
 import { getJuzByPage, getSurahByPage } from '@/data/quranData';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 import {
     AlertTriangle,
     ArrowLeft,
@@ -51,6 +54,8 @@ const EXPERT_TIPS = [
 ];
 
 export default function MemorizeScreen() {
+  const { pageMode } = usePageColor();
+  const pageStyle = getPageStyle(pageMode);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors: c, mode } = useTheme();
@@ -75,7 +80,7 @@ export default function MemorizeScreen() {
   const pageRecord = getPageRecord(currentPage);
   const surah = getSurahByPage(currentPage);
   const juz = getJuzByPage(currentPage);
-  const pageImage = mushafPages.find(p => p.page === currentPage)?.image;
+  const pageImage = getPageSource(currentPage, pageStyle.useNightImages);
   const statusConfig = STATUS_CONFIG[pageRecord.status];
 
   const goNext = useCallback(() => {
@@ -118,7 +123,7 @@ export default function MemorizeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: c.surface, borderBottomColor: c.border }]}>
@@ -187,7 +192,7 @@ export default function MemorizeScreen() {
             </View>
 
             {/* Page Image */}
-            <View style={styles.imageContainer}>
+            <View style={[styles.imageContainer, { backgroundColor: pageStyle.useNightImages && hasNightPages ? '#000' : '#fff', isolation: 'isolate' }]}>
               {pageImage && (
                 <Image
                   source={pageImage}
@@ -196,6 +201,7 @@ export default function MemorizeScreen() {
                   cachePolicy="memory-disk"
                 />
               )}
+              <PageTint pageMode={pageMode} nightMissing={pageStyle.useNightImages && !hasNightPages} />
             </View>
 
             {/* Navigation */}

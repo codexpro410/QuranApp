@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform, Alert } from 'react-native';
+import { Alert } from 'react-native';
 import createContextHook from '@nkzw/create-context-hook';
+import { ensureNotificationPermission, getNotifications } from '@/utils/notifications';
 
 const AZKAR_PROGRESS_KEY = '@azkar_progress';
 const AZKAR_NOTIFICATIONS_KEY = '@azkar_notifications';
@@ -27,35 +28,12 @@ const defaultNotificationSettings: NotificationSettings = {
   masaaTime: { hour: 17, minute: 0 },
 };
 
-let Notifications: typeof import('expo-notifications') | null = null;
-
-async function loadNotifications() {
-  if (Platform.OS === 'web') return null;
-  try {
-    Notifications = await import('expo-notifications');
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-        shouldShowBanner: true,
-        shouldShowList: true,
-      }),
-    });
-    return Notifications;
-  } catch (error) {
-    console.log('Notifications not available:', error);
-    return null;
-  }
-}
-
 export const [AzkarProvider, useAzkar] = createContextHook(() => {
   const [progress, setProgress] = useState<AzkarProgress>({});
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadNotifications();
     loadData();
   }, []);
 
@@ -167,50 +145,25 @@ export const [AzkarProvider, useAzkar] = createContextHook(() => {
     });
   }, []);
 
-  const requestNotificationPermissions = async (): Promise<boolean> => {
-    if (Platform.OS === 'web' || !Notifications) {
-      return false;
-    }
-
-    try {
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-
-      return finalStatus === 'granted';
-    } catch (error) {
-      console.log('Error requesting notification permissions:', error);
-      return false;
-    }
-  };
-
   const scheduleAzkarNotification = async (
     categoryId: 'sabah' | 'masaa',
     hour: number,
     minute: number
   ) => {
-    if (Platform.OS === 'web' || !Notifications) return;
+    const Notifications = await getNotifications();
+    if (!Notifications) return;
 
     const identifier = `azkar_${categoryId}`;
-    
     try {
       await Notifications.cancelScheduledNotificationAsync(identifier).catch(() => {});
 
       const title = categoryId === 'sabah' ? '🌅 أذكار الصباح' : '🌆 أذكار المساء';
-      const body = categoryId === 'sabah' 
-        ? 'حان وقت أذكار الصباح،  إذكر الله'
-        : 'حان وقت أذكار المساء،  إذكر الله';
+      const body = categoryId === 'sabah'
+        ? 'حان وقت أذكار الصباح، اذكر الله'
+        : 'حان وقت أذكار المساء، اذكر الله';
 
       await Notifications.scheduleNotificationAsync({
-        content: {
-          title,
-          body,
-          sound: true,
-        },
+        content: { title, body, sound: true },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DAILY,
           hour,
@@ -223,28 +176,33 @@ export const [AzkarProvider, useAzkar] = createContextHook(() => {
     }
   };
 
+  const applyNotificationSchedule = async (settings: NotificationSettings) => {
+    const Notifications = await getNotifications();
+    if (!Notifications) return;
+
+    if (settings.sabahEnabled) {
+      await scheduleAzkarNotification('sabah', settings.sabahTime.hour, settings.sabahTime.minute);
+    } else {
+      await Notifications.cancelScheduledNotificationAsync('azkar_sabah').catch(() => {});
+    }
+
+    if (settings.masaaEnabled) {
+      await scheduleAzkarNotification('masaa', settings.masaaTime.hour, settings.masaaTime.minute);
+    } else {
+      await Notifications.cancelScheduledNotificationAsync('azkar_masaa').catch(() => {});
+    }
+  };
+
   const updateNotificationSettings = useCallback(async (settings: Partial<NotificationSettings>) => {
     const newSettings = { ...notificationSettings, ...settings };
     setNotificationSettings(newSettings);
-    
+
     try {
       await AsyncStorage.setItem(AZKAR_NOTIFICATIONS_KEY, JSON.stringify(newSettings));
-      
-      if (Platform.OS !== 'web' && Notifications) {
-        const hasPermission = await requestNotificationPermissions();
-        
-        if (hasPermission) {
-          if (newSettings.sabahEnabled) {
-            await scheduleAzkarNotification('sabah', newSettings.sabahTime.hour, newSettings.sabahTime.minute);
-          } else {
-            await Notifications.cancelScheduledNotificationAsync('azkar_sabah').catch(() => {});
-          }
-          
-          if (newSettings.masaaEnabled) {
-            await scheduleAzkarNotification('masaa', newSettings.masaaTime.hour, newSettings.masaaTime.minute);
-          } else {
-            await Notifications.cancelScheduledNotificationAsync('azkar_masaa').catch(() => {});
-          }
+
+      if (await getNotifications()) {
+        if (await ensureNotificationPermission()) {
+          await applyNotificationSchedule(newSettings);
         } else {
           Alert.alert('تنبيه', 'يرجى السماح بالإشعارات من إعدادات الجهاز');
         }
@@ -254,23 +212,15 @@ export const [AzkarProvider, useAzkar] = createContextHook(() => {
     }
   }, [notificationSettings]);
 
+  // يجب أن تُستدعى بعد اكتمال تحميل الإعدادات المحفوظة، وإلا تُجدول المواعيد الافتراضية
+  // فوق المواعيد التي اختارها المستخدم.
   const initializeNotifications = useCallback(async () => {
-    if (Platform.OS === 'web') return;
-    
-    await loadNotifications();
-    
-    if (!Notifications) return;
-
-    const hasPermission = await requestNotificationPermissions();
-    if (hasPermission) {
-      if (notificationSettings.sabahEnabled) {
-        await scheduleAzkarNotification('sabah', notificationSettings.sabahTime.hour, notificationSettings.sabahTime.minute);
-      }
-      if (notificationSettings.masaaEnabled) {
-        await scheduleAzkarNotification('masaa', notificationSettings.masaaTime.hour, notificationSettings.masaaTime.minute);
-      }
+    if (isLoading) return;
+    if (!(await getNotifications())) return;
+    if (await ensureNotificationPermission()) {
+      await applyNotificationSchedule(notificationSettings);
     }
-  }, [notificationSettings]);
+  }, [isLoading, notificationSettings]);
 
   return {
     progress,

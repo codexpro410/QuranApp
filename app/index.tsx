@@ -1,347 +1,255 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useRouter } from 'expo-router';
+import { BookOpen, Bookmark, List, MoreVertical } from 'lucide-react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
   FlatList,
-  ScrollView,
-  Modal,
-  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
   useWindowDimensions,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import {
-  MoreVertical,
-  List,
-  Bookmark,
-  BookOpen,
-  Moon,
-  Sun,
-  X,
-  Book,
-  MoreHorizontal,
-  Save,
-  Settings,
-} from 'lucide-react-native';
-import { StatusBar } from 'expo-status-bar';
-import { useTheme } from '@/contexts/ThemeContext';
-import { useBookmarks, BookmarkType, getBookmarkColor, getBookmarkLabel } from '@/contexts/BookmarkContext';
-import { useAudio } from '@/contexts/AudioContext';
-import {
-  getSurahByPage,
-  TOTAL_PAGES,
-  quranData,
-  getJuzByPage,
-  getHizbByPage,
-  getRubByPage,
-  getManzilByPage,
-} from '@/data/quranData';
-import { mushafPages } from '@/data/mushafAssets';
-import { usePageColor } from '@/contexts/PageColorContext';
 
-// Speed options: label → pixels per tick (at 60fps)
+import BookmarkSheet from '@/components/BookmarkSheet';
+import MushafMenu from '@/components/MushafMenu';
+import MushafPage from '@/components/MushafPage';
+import SystemBars from '@/components/SystemBars';
+import { BookmarkType, getBookmarkColor, getBookmarkLabel, useBookmarks } from '@/contexts/BookmarkContext';
+import { getPageStyle } from '@/constants/pageStyles';
+import { usePageColor } from '@/contexts/PageColorContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import {
+  TOTAL_PAGES,
+  getHizbByPage,
+  getJuzByPage,
+  getManzilByPage,
+  getRubByPage,
+  getSurahByPage,
+} from '@/data/quranData';
+
+// سرعة التمرير التلقائي: بكسل لكل إطار (عند 60 إطار/ث)
 const SPEED_OPTIONS = [
   { label: 'بطيء جداً', value: 0.3 },
-  { label: 'بطيء',      value: 0.6 },
-  { label: 'متوسط',     value: 1.0 },
-  { label: 'سريع',      value: 1.8 },
+  { label: 'بطيء', value: 0.6 },
+  { label: 'متوسط', value: 1.0 },
+  { label: 'سريع', value: 1.8 },
   { label: 'سريع جداً', value: 3.0 },
 ];
 
+const PAGES = Array.from({ length: TOTAL_PAGES }, (_, i) => i + 1);
+const keyExtractor = (item: number) => String(item);
+const VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 50 };
+
 export default function QuranScreen() {
-  const { pageMode } = usePageColor();
-
-  const IMAGE_WIDTH  = 750;
-  const IMAGE_HEIGHT = 1437;
-
+  const router = useRouter();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { mode, colors } = useTheme();
+  const { pageMode, mushafWidth, mushafHeight } = usePageColor();
+  const {
+    currentPage, setCurrentPage, isLoaded, jumpRequest,
+    addBookmark, removeBookmark, getBookmarkForPage,
+  } = useBookmarks();
 
+  const pageStyle = getPageStyle(pageMode);
   const isLandscape = width > height;
+  const listRef = useRef<FlatList<number>>(null);
 
-  // Portrait sizing
+  // ── أبعاد الصفحة: نسبة العرض/الارتفاع تأتي من إعدادات «أبعاد صفحة المصحف» ──
+  const aspect = mushafHeight / mushafWidth;
+
+  // عمودي: تناسب الصفحة داخل الشاشة
   const availableHeight = height - insets.top - insets.bottom;
-  const scaleByHeight   = availableHeight / IMAGE_HEIGHT;
-  const scaleByWidth    = width / IMAGE_WIDTH;
-  const scale           = Math.min(scaleByHeight, scaleByWidth);
-  const portraitW       = IMAGE_WIDTH  * scale;
-  const portraitH       = IMAGE_HEIGHT * scale;
+  const scale = Math.min(availableHeight / mushafHeight, width / mushafWidth);
+  const portraitW = mushafWidth * scale;
+  const portraitH = mushafHeight * scale;
 
-  // Landscape: fill full width
+  // أفقي: 90% من العرض مع تمرير رأسي
   const landscapeW = width * 0.9;
-  const landscapeH = width * 0.9 * (IMAGE_HEIGHT / IMAGE_WIDTH);
+  const landscapeH = landscapeW * aspect;
 
-  const imageWidth  = isLandscape ? landscapeW : portraitW;
-  const imageHeight = isLandscape ? landscapeH : portraitH;
+  // ── واجهة المستخدم ──
+  const [showUI, setShowUI] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showBookmarkSheet, setShowBookmarkSheet] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toggleUI = useCallback(() => setShowUI(v => !v), []);
 
-  // ── Auto-scroll state ──
-  const [autoScroll,  setAutoScroll]  = useState(false);
-  const [speedIndex,  setSpeedIndex]  = useState(2); // default = 'متوسط'
-  // const scrollRef     = useRef<ScrollView>(null);
-  const scrollRef = useRef<FlatList>(null);
-  const scrollYRef    = useRef(0);
-  const autoScrollRef = useRef(false);
-  const animFrameRef  = useRef<number | null>(null);
-
-  useEffect(() => { autoScrollRef.current = autoScroll; }, [autoScroll]);
-
-  const stopAutoScroll = useCallback(() => {
-    if (animFrameRef.current !== null) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
-    }
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
   }, []);
 
-  const startAutoScroll = useCallback(() => {
-    stopAutoScroll();
-    const speed = SPEED_OPTIONS[speedIndex].value;
-const tick = () => {
-  if (!autoScrollRef.current) return;
-  scrollYRef.current += speed;
-  landscapeListRef.current?.scrollToOffset({ offset: scrollYRef.current, animated: false });
-  animFrameRef.current = requestAnimationFrame(tick);
-};
-    animFrameRef.current = requestAnimationFrame(tick);
-  }, [speedIndex, stopAutoScroll]);
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2000);
+  }, []);
 
+  // ── الانتقال إلى صفحة (من الفهرس/العلامات/الانتقال لصفحة) ──
+  // كل طلب له nonce مختلف، فيعمل حتى لو اخترت نفس السورة مرتين.
+  const handledNonce = useRef(jumpRequest?.nonce ?? 0);
   useEffect(() => {
-    if (autoScroll) startAutoScroll();
-    else stopAutoScroll();
-    return stopAutoScroll;
-  }, [autoScroll, speedIndex]);
+    if (!jumpRequest || jumpRequest.nonce === handledNonce.current) return;
+    handledNonce.current = jumpRequest.nonce;
+    const index = jumpRequest.page - 1;
+    const id = requestAnimationFrame(() => {
+      listRef.current?.scrollToIndex({ index, animated: false });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [jumpRequest]);
 
-  // Stop auto-scroll when leaving landscape
-  useEffect(() => {
-    if (!isLandscape) {
-      setAutoScroll(false);
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: { item: number }[] }) => {
+      if (viewableItems.length > 0) setCurrentPage(viewableItems[0].item);
     }
-  }, [isLandscape]);
+  ).current;
 
-  // ── UI / nav ──
-  const [showUI, setShowUI] = useState(false);
-  const toggleUI = () => setShowUI(prev => !prev);
-
-  const router = useRouter();
-  const { mode, colors, toggleTheme } = useTheme();
-  const { currentPage, setCurrentPage, addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks();
-  const { goToPage } = useLocalSearchParams<{ goToPage?: string }>();
-
-  const [showMenu,          setShowMenu]          = useState(false);
-  const [showBookmarkModal, setShowBookmarkModal] = useState(false);
-  const [bookmarkNotification, setBookmarkNotification] = useState<string | null>(null);
-  const flatListRef = useRef<FlatList>(null);
-
-  const { currentSurah: playingSurahNumber } = useAudio();
-
-  const pages = useRef(Array.from({ length: TOTAL_PAGES }, (_, i) => i + 1)).current;
-
-  useEffect(() => {
-    if (goToPage) {
-      const pageNum = parseInt(goToPage, 10);
-      if (pageNum > 0 && pageNum <= TOTAL_PAGES) {
-        setTimeout(() => {
-          flatListRef.current?.scrollToIndex({ index: pageNum - 1, animated: false });
-          setCurrentPage(pageNum);
-        }, 100);
-      }
-    } else if (currentPage > 1) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToIndex({ index: currentPage - 1, animated: false });
-      }, 100);
-    }
-  }, [goToPage]);
-
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) setCurrentPage(viewableItems[0].item);
-  }).current;
-
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
-
-  const currentSurah   = getSurahByPage(currentPage);
+  // ── بيانات الصفحة الحالية ──
+  const surah = getSurahByPage(currentPage);
+  const juz = getJuzByPage(currentPage);
+  const hizb = getHizbByPage(currentPage);
+  const rub = getRubByPage(currentPage);
+  const manzil = getManzilByPage(currentPage);
+  const rubInHizb = ((rub.rub - 1) % 4) + 1;
   const currentBookmark = getBookmarkForPage(currentPage);
 
   const handleBookmark = useCallback((type: BookmarkType) => {
-    addBookmark(currentPage, type, currentSurah?.name);
-    setShowBookmarkModal(false);
-    setBookmarkNotification(`تم إضافة علامة ${getBookmarkLabel(type)}`);
-    setTimeout(() => setBookmarkNotification(null), 2000);
-  }, [currentPage, currentSurah, addBookmark]);
+    addBookmark(currentPage, type, surah?.name);
+    setShowBookmarkSheet(false);
+    showToast(`تم إضافة علامة ${getBookmarkLabel(type)}`);
+  }, [currentPage, surah, addBookmark, showToast]);
 
   const handleRemoveBookmark = useCallback(() => {
     removeBookmark(currentPage);
-    setShowBookmarkModal(false);
-    setBookmarkNotification('تم إزالة العلامة');
-    setTimeout(() => setBookmarkNotification(null), 2000);
-  }, [currentPage, removeBookmark]);
+    setShowBookmarkSheet(false);
+    showToast('تم إزالة العلامة');
+  }, [currentPage, removeBookmark, showToast]);
 
-  const juz    = getJuzByPage(currentPage);
-  const hizb   = getHizbByPage(currentPage);
-  const rub    = getRubByPage(currentPage);
-  const manzil = getManzilByPage(currentPage);
+  // ── التمرير التلقائي (الوضع الأفقي) ──
+  const [autoScroll, setAutoScroll] = useState(false);
+  const [speedIndex, setSpeedIndex] = useState(2);
+  const scrollYRef = useRef(0);
 
-  // ── Page overlay helper ──
-  const PageOverlay = () => (
-    <>
-      {pageMode === 'paper' && (
-        <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: '#fff8e1', opacity: 0.18, pointerEvents: 'none' }} />
-      )}
-      {pageMode === 'dark' && (
-        <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: '#1a1a2e', opacity: 0.92, pointerEvents: 'none' }} />
-      )}
-    </>
-  );
+  useEffect(() => {
+    if (!isLandscape) setAutoScroll(false);
+  }, [isLandscape]);
 
-  // ── Portrait renderPage ──
-  const renderPage = useCallback(({ item }: { item: number }) => {
-    const pageImage = mushafPages.find(p => p.page === item)?.image;
-    if (!pageImage) return null;
-    return (
-      <Pressable
-        style={{ width, height, justifyContent: 'flex-start', alignItems: 'center' }}
-        onPress={toggleUI}
-      >
-        <View style={{ height: insets.top }} />
-        <View style={{ width: imageWidth, height: imageHeight }}>
-          <Image
-            source={pageImage}
-            style={{ width: imageWidth, height: imageHeight }}
-            contentFit="fill"
-            cachePolicy="memory-disk"
-          />
-          <PageOverlay />
-        </View>
-        <View style={{ height: insets.bottom }} />
-      </Pressable>
-    );
-  }, [width, height, insets, imageWidth, imageHeight, pageMode]);
+  useEffect(() => {
+    if (!autoScroll) return;
+    const speed = SPEED_OPTIONS[speedIndex].value;
+    const maxOffset = Math.max(0, TOTAL_PAGES * landscapeH - height);
+    let frame = 0;
+    let last = 0;
+    const tick = (ts: number) => {
+      // نحسب المسافة حسب الزمن الفعلي حتى تبقى السرعة ثابتة على الشاشات 90/120 هرتز
+      const dt = last ? Math.min(ts - last, 50) : 16.7;
+      last = ts;
+      scrollYRef.current = Math.min(scrollYRef.current + speed * (dt / 16.7), maxOffset);
+      listRef.current?.scrollToOffset({ offset: scrollYRef.current, animated: false });
+      if (scrollYRef.current >= maxOffset) {
+        setAutoScroll(false);
+        return;
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [autoScroll, speedIndex, landscapeH, height]);
 
-  const getItemLayout = useCallback((_: any, index: number) => ({
-    length: width,
-    offset: width * index,
-    index,
+  // ── عناصر القوائم ──
+  const renderPortraitPage = useCallback(({ item }: { item: number }) => (
+    <MushafPage
+      page={item}
+      slotWidth={width}
+      slotHeight={height}
+      imageWidth={portraitW}
+      imageHeight={portraitH}
+      top={insets.top}
+      pageMode={pageMode}
+      onPress={toggleUI}
+    />
+  ), [width, height, portraitW, portraitH, insets.top, pageMode, toggleUI]);
+
+  const renderLandscapePage = useCallback(({ item }: { item: number }) => (
+    <MushafPage
+      page={item}
+      slotWidth={width}
+      slotHeight={landscapeH}
+      imageWidth={landscapeW}
+      imageHeight={landscapeH}
+      pageMode={pageMode}
+      onPress={toggleUI}
+    />
+  ), [width, landscapeW, landscapeH, pageMode, toggleUI]);
+
+  const portraitLayout = useCallback((_: unknown, index: number) => ({
+    length: width, offset: width * index, index,
   }), [width]);
 
-  // ════════════════════════════════════════
-  // LANDSCAPE MODE — early return
-  // ════════════════════════════════════════
-  const landscapeListRef = useRef<FlatList>(null);
-useEffect(() => {
-  if (!isLandscape && currentPage > 1) {
-    setTimeout(() => {
-      flatListRef.current?.scrollToIndex({
-        index: currentPage - 1,
-        animated: false,
-      });
-    }, 100);
-  }
-}, [isLandscape]);
+  const landscapeLayout = useCallback((_: unknown, index: number) => ({
+    length: landscapeH, offset: landscapeH * index, index,
+  }), [landscapeH]);
 
-useEffect(() => {
-  if (isLandscape && currentPage > 1) {
-    setTimeout(() => {
-      landscapeListRef.current?.scrollToIndex({
-        index: currentPage - 1,
-        animated: false,
-      });
-    }, 100);
-  }
-}, [isLandscape]); // only fires when orientation changes
+  // الوضع الداكن للتطبيق أو النمط الليلي ← شريطا النظام أسودان بأيقونات بيضاء
+  const barsDark = mode === 'dark' || pageStyle.useNightImages;
+  const barsBg = barsDark ? '#000' : pageStyle.screenBg;
+  const initialIndex = Math.min(Math.max(currentPage - 1, 0), TOTAL_PAGES - 1);
 
+  // انتظار تحميل آخر صفحة محفوظة حتى تفتح القائمة على الصفحة الصحيحة مباشرة
+  if (!isLoaded) {
+    return <View style={[styles.container, { backgroundColor: colors.background }]} />;
+  }
+
+  // ════════ الوضع الأفقي ════════
   if (isLandscape) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} hidden />  
-      <FlatList
-  ref={landscapeListRef}  // ← swap from scrollRef as any
-  data={pages}
-  keyExtractor={(item) => item.toString()}
-  initialNumToRender={5}
-  maxToRenderPerBatch={3}
-  windowSize={5}
-  removeClippedSubviews
-  contentContainerStyle={{
-    paddingTop: insets.top,
-    paddingBottom: insets.bottom,
-  }}
-  onViewableItemsChanged={onViewableItemsChanged}  // ← tracks page while scrolling
-  viewabilityConfig={viewabilityConfig}
-  onScrollToIndexFailed={(info) => {
-    landscapeListRef.current?.scrollToOffset({
-      offset: info.index * landscapeH,
-      animated: false,
-    });
-  }}
-  onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
-  scrollEventThrottle={16}
-  onScrollBeginDrag={() => setAutoScroll(false)}
-  showsVerticalScrollIndicator={false}
-  renderItem={({ item: pageNum }) => {
-    const pageImage = mushafPages.find(p => p.page === pageNum)?.image;
-    if (!pageImage) return null;
-    return (
-      <Pressable onPress={toggleUI}>
-        {/* Center the image horizontally since it's now 90% width */}
-        <View style={{
-          width,
-          height: landscapeH,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          <View style={{ width: landscapeW, height: landscapeH }}>
-            <Image
-              source={pageImage}
-              style={{ width: landscapeW, height: landscapeH }}
-              contentFit="fill"
-              cachePolicy="memory-disk"
-            />
-            <PageOverlay />
-          </View>
-        </View>
-      </Pressable>
-    );
-  }}
-  // onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
-  // scrollEventThrottle={16}
-  // onScrollBeginDrag={() => setAutoScroll(false)}
-  // showsVerticalScrollIndicator={false}
-  // ref={scrollRef as any}
-/>
+      <View style={[styles.container, { backgroundColor: pageStyle.screenBg }]}>
+        <SystemBars light={pageStyle.useNightImages} hidden />
+        <FlatList
+          ref={listRef}
+          data={PAGES}
+          keyExtractor={keyExtractor}
+          renderItem={renderLandscapePage}
+          getItemLayout={landscapeLayout}
+          initialScrollIndex={initialIndex}
+          initialNumToRender={3}
+          maxToRenderPerBatch={2}
+          windowSize={5}
+          removeClippedSubviews
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={VIEWABILITY_CONFIG}
+          onScrollToIndexFailed={info => {
+            listRef.current?.scrollToOffset({ offset: info.index * landscapeH, animated: false });
+          }}
+          onScroll={e => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={16}
+          onScrollBeginDrag={() => setAutoScroll(false)}
+          showsVerticalScrollIndicator={false}
+        />
 
-        {/* Auto-scroll controls — shown when UI is visible */}
         {showUI && (
           <View style={[styles.landscapeControls, {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
-             marginRight: insets.right,         
-            marginLeft: insets.left,     
             paddingBottom: insets.bottom + 8,
-            paddingRight: insets.right + 8,
-            paddingLeft: insets.left + 8,
+            paddingRight: insets.right + 12,
+            paddingLeft: insets.left + 12,
           }]}>
-
-            {/* Speed selector */}
             <View style={styles.speedRow}>
               <Text style={[styles.speedLabel, { color: colors.textSecondary }]}>سرعة التمرير:</Text>
               <View style={styles.speedChips}>
                 {SPEED_OPTIONS.map((opt, idx) => (
                   <TouchableOpacity
-                    key={idx}
-                    style={[
-                      styles.speedChip,
-                      {
-                        backgroundColor: speedIndex === idx ? colors.gold : colors.surfaceLight,
-                        borderColor: speedIndex === idx ? colors.gold : colors.border,
-                      },
-                    ]}
+                    key={opt.label}
+                    style={[styles.speedChip, {
+                      backgroundColor: speedIndex === idx ? colors.gold : colors.surfaceLight,
+                      borderColor: speedIndex === idx ? colors.gold : colors.border,
+                    }]}
                     onPress={() => setSpeedIndex(idx)}
                   >
-                    <Text style={[
-                      styles.speedChipText,
-                      { color: speedIndex === idx ? '#fff' : colors.text },
-                    ]}>
+                    <Text style={[styles.speedChipText, { color: speedIndex === idx ? '#fff' : colors.text }]}>
                       {opt.label}
                     </Text>
                   </TouchableOpacity>
@@ -349,32 +257,28 @@ useEffect(() => {
               </View>
             </View>
 
-            {/* Play / Stop button */}
             <TouchableOpacity
-              style={[styles.autoScrollBtn, {
-                backgroundColor: autoScroll ? colors.error : colors.gold,
-              }]}
+              style={[styles.autoScrollBtn, { backgroundColor: autoScroll ? colors.error : colors.gold }]}
               onPress={() => setAutoScroll(v => !v)}
             >
               <Text style={styles.autoScrollBtnText}>
                 {autoScroll ? '⏹  إيقاف التمرير التلقائي' : '▶  تشغيل التمرير التلقائي'}
               </Text>
             </TouchableOpacity>
-
           </View>
         )}
       </View>
     );
   }
 
-  // ════════════════════════════════════════
-  // PORTRAIT MODE
-  // ════════════════════════════════════════
+  // ════════ الوضع العمودي ════════
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+    <View style={[styles.container, { backgroundColor: pageStyle.screenBg }]}>
+      <SystemBars light={barsDark} />
+      {/* شريطا النظام (أعلى/أسفل) بلون داكن ثابت في الوضع الداكن حتى لو الصفحة ورقية */}
+      <View pointerEvents="none" style={[styles.systemStrip, { top: 0, height: insets.top, backgroundColor: barsBg }]} />
+      <View pointerEvents="none" style={[styles.systemStrip, { bottom: 0, height: insets.bottom, backgroundColor: barsBg }]} />
 
-      {/* Header */}
       <View
         pointerEvents={showUI ? 'auto' : 'none'}
         style={[styles.header, {
@@ -382,33 +286,27 @@ useEffect(() => {
           paddingTop: insets.top + 8,
           backgroundColor: colors.surface,
           borderBottomColor: colors.border,
-          position: 'absolute',
-          top: 0, left: 0, right: 0,
-          zIndex: 10,
         }]}
       >
         <TouchableOpacity style={styles.headerButton} onPress={() => setShowMenu(true)}>
           <MoreVertical size={24} color={colors.text} />
         </TouchableOpacity>
 
-          <TouchableOpacity
-          // style={[styles.bottomButton, { backgroundColor: colors.surfaceLight }]}
-          onPress={() => router.push('/surah-index' as any)}
-        >
-        <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: colors.gold }]}>
-            {currentSurah?.name || 'القرآن الكريم'}
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: colors.text }]}>
-            صفحة {currentPage} • الجزء {juz}
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: colors.text }]}>
-            حزب {hizb.globalHizb} • ربع {rub.globalRub} • تحزيب القرآن {manzil}
-          </Text>
-        </View>
+        <TouchableOpacity onPress={() => router.push('/surah-index' as any)}>
+          <View style={styles.headerCenter}>
+            <Text style={[styles.headerTitle, { color: colors.gold }]}>
+              {surah?.name || 'القرآن الكريم'}
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: colors.text }]}>
+              صفحة {currentPage} • الجزء {juz}
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: colors.text }]}>
+              حزب {hizb.globalHizb} • الربع {rubInHizb} • المنزل {manzil}
+            </Text>
+          </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.headerButton} onPress={() => setShowBookmarkModal(true)}>
+        <TouchableOpacity style={styles.headerButton} onPress={() => setShowBookmarkSheet(true)}>
           <Bookmark
             size={24}
             color={currentBookmark ? getBookmarkColor(currentBookmark.type) : colors.text}
@@ -417,29 +315,28 @@ useEffect(() => {
         </TouchableOpacity>
       </View>
 
-      {/* Pages */}
       <FlatList
-        ref={flatListRef}
-        data={pages}
+        ref={listRef}
+        data={PAGES}
         horizontal
         pagingEnabled
         inverted
         showsHorizontalScrollIndicator={false}
-        keyExtractor={(item) => item.toString()}
-        renderItem={renderPage}
-        getItemLayout={getItemLayout}
+        keyExtractor={keyExtractor}
+        renderItem={renderPortraitPage}
+        getItemLayout={portraitLayout}
+        initialScrollIndex={initialIndex}
         onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        initialNumToRender={5}
-        maxToRenderPerBatch={5}
-        windowSize={7}
+        viewabilityConfig={VIEWABILITY_CONFIG}
+        initialNumToRender={3}
+        maxToRenderPerBatch={2}
+        windowSize={5}
         removeClippedSubviews
-        onScrollToIndexFailed={(info) => {
-          flatListRef.current?.scrollToOffset({ offset: info.index * width, animated: false });
+        onScrollToIndexFailed={info => {
+          listRef.current?.scrollToOffset({ offset: info.index * width, animated: false });
         }}
       />
 
-      {/* Bottom bar */}
       <View
         pointerEvents={showUI ? 'auto' : 'none'}
         style={[styles.bottomBar, {
@@ -459,182 +356,62 @@ useEffect(() => {
 
         <TouchableOpacity
           style={[styles.bottomButton, { backgroundColor: colors.surfaceLight }]}
-          onPress={() => router.push({ pathname: '/tafsir' as any, params: { page: currentPage.toString() } })}
+          onPress={() => router.push({ pathname: '/tafsir' as any, params: { page: String(currentPage) } })}
         >
           <BookOpen size={20} color={colors.gold} />
           <Text style={[styles.bottomButtonText, { color: colors.text }]}>التفسير</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Bookmark notification */}
-      {bookmarkNotification && (
+      {toast && (
         <View style={[styles.notification, { backgroundColor: colors.success }]}>
-          <Text style={styles.notificationText}>{bookmarkNotification}</Text>
+          <Text style={styles.notificationText}>{toast}</Text>
         </View>
       )}
 
-      {/* Menu modal */}
-      <Modal visible={showMenu} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowMenu(false)}>
-          <View style={[styles.menuContainer, { backgroundColor: colors.surface, top: insets.top + 50 }]}>
-            <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]}
-              onPress={() => { setShowMenu(false); router.push('/azkar' as any); }}>
-              <Moon size={20} color={colors.text} />
-              <Text style={[styles.menuText, { color: colors.text }]}>الأذكار</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]}
-              onPress={() => { setShowMenu(false); router.push('/page-jump' as any); }}>
-              <Book size={20} color={colors.text} />
-              <Text style={[styles.menuText, { color: colors.text }]}>الانتقال إلي صفحة</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]}
-              onPress={() => { setShowMenu(false); router.push('/more' as any); }}>
-              <MoreHorizontal size={20} color={colors.text} />
-              <Text style={[styles.menuText, { color: colors.text }]}>المزيد</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]}
-              onPress={() => { setShowMenu(false); router.push('/settings' as any); }}>
-              <Settings size={20} color={colors.text} />
-              <Text style={[styles.menuText, { color: colors.text }]}>الإعدادات</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]}
-              onPress={() => { setShowMenu(false); router.push('/hifz' as any); }}>
-              <Save size={20} color={colors.text} />
-              <Text style={[styles.menuText, { color: colors.text }]}>برنامج تحفيظ</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]}
-              onPress={() => { setShowMenu(false); toggleTheme(); }}>
-              {mode === 'dark'
-                ? <Sun size={20} color={colors.text} />
-                : <Moon size={20} color={colors.text} />}
-              <Text style={[styles.menuText, { color: colors.text }]}>
-                {mode === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem}
-              onPress={() => { setShowMenu(false); router.push('/bookmarks' as any); }}>
-              <Bookmark size={20} color={colors.text} />
-              <Text style={[styles.menuText, { color: colors.text }]}>العلامات المرجعية</Text>
-            </TouchableOpacity>
-          </View>
-        </Pressable>
-      </Modal>
+      <MushafMenu visible={showMenu} onClose={() => setShowMenu(false)} top={insets.top + 50} />
 
-      {/* Bookmark modal */}
-      <Modal visible={showBookmarkModal} transparent animationType="slide">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowBookmarkModal(false)}>
-          <View style={[styles.bookmarkModal, { backgroundColor: colors.surface, paddingBottom: insets.bottom + 20 }]}>
-            <View style={[styles.bookmarkHeader, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.bookmarkTitle, { color: colors.text }]}>إضافة علامة</Text>
-              <TouchableOpacity onPress={() => setShowBookmarkModal(false)}>
-                <X size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.bookmarkOptions}>
-              <TouchableOpacity
-                style={[styles.bookmarkOption, { backgroundColor: 'rgba(76,175,80,0.15)', borderColor: '#4CAF50' }]}
-                onPress={() => handleBookmark('read')}
-              >
-                <Bookmark size={28} color="#4CAF50" fill="#4CAF50" />
-                <Text style={[styles.bookmarkOptionText, { color: '#4CAF50' }]}>قراءة</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.bookmarkOption, { backgroundColor: 'rgba(255,152,0,0.15)', borderColor: '#FF9800' }]}
-                onPress={() => handleBookmark('review')}
-              >
-                <Bookmark size={28} color="#FF9800" fill="#FF9800" />
-                <Text style={[styles.bookmarkOptionText, { color: '#FF9800' }]}>مراجعة</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.bookmarkOption, { backgroundColor: 'rgba(33,150,243,0.15)', borderColor: '#2196F3' }]}
-                onPress={() => handleBookmark('memorize')}
-              >
-                <Bookmark size={28} color="#2196F3" fill="#2196F3" />
-                <Text style={[styles.bookmarkOptionText, { color: '#2196F3' }]}>حفظ</Text>
-              </TouchableOpacity>
-            </View>
-
-            {currentBookmark && (
-              <TouchableOpacity
-                style={[styles.removeBookmarkButton, { borderColor: colors.error }]}
-                onPress={handleRemoveBookmark}
-              >
-                <Text style={[styles.removeBookmarkText, { color: colors.error }]}>إزالة العلامة الحالية</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </Pressable>
-      </Modal>
+      <BookmarkSheet
+        visible={showBookmarkSheet}
+        onClose={() => setShowBookmarkSheet(false)}
+        onSelect={handleBookmark}
+        onRemove={handleRemoveBookmark}
+        hasBookmark={!!currentBookmark}
+        bottomInset={insets.bottom}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container:      { flex: 1 },
+  container: { flex: 1 },
+  systemStrip: { position: 'absolute', left: 0, right: 0, zIndex: 5 },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 4,
-    borderBottomWidth: 1,
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingBottom: 4, borderBottomWidth: 1,
   },
-  headerButton:   { padding: 8 },
-  headerCenter:   { alignItems: 'center' },
-  headerTitle:    { fontSize: 20, fontWeight: '700' as const },
+  headerButton: { padding: 8 },
+  headerCenter: { alignItems: 'center' },
+  headerTitle: { fontSize: 20, fontWeight: '700' },
   headerSubtitle: { fontSize: 14, marginTop: 2 },
   bottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     flexDirection: 'row', justifyContent: 'center',
-    gap: 16, paddingTop: 8, paddingBottom: 12, borderTopWidth: 1,
+    gap: 16, paddingTop: 8, borderTopWidth: 1,
   },
   bottomButton: {
     flexDirection: 'row', alignItems: 'center',
     gap: 8, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20,
   },
-  bottomButtonText: { fontSize: 14, fontWeight: '600' as const },
+  bottomButtonText: { fontSize: 14, fontWeight: '600' },
   notification: {
     position: 'absolute', top: 120, left: 20, right: 20,
     padding: 16, borderRadius: 12, alignItems: 'center',
   },
-  notificationText: { color: '#fff', fontSize: 16, fontWeight: '600' as const },
-  modalOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
-  menuContainer: {
-    position: 'absolute', left: 16, borderRadius: 12,
-    overflow: 'hidden', minWidth: 200,
-    elevation: 5, shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4,
-  },
-  menuItem: {
-    flexDirection: 'row', alignItems: 'center',
-    gap: 12, padding: 16, borderBottomWidth: 1,
-  },
-  menuText:       { fontSize: 16 },
-  bookmarkModal: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-  },
-  bookmarkHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', padding: 20, borderBottomWidth: 1,
-  },
-  bookmarkTitle:  { fontSize: 18, fontWeight: '700' as const },
-  bookmarkOptions: {
-    flexDirection: 'row', justifyContent: 'space-around', padding: 20,
-  },
-  bookmarkOption: {
-    alignItems: 'center', padding: 20,
-    borderRadius: 16, borderWidth: 2, minWidth: 90,
-  },
-  bookmarkOptionText: { marginTop: 8, fontSize: 14, fontWeight: '600' as const },
-  removeBookmarkButton: {
-    marginHorizontal: 20, marginBottom: 20,
-    padding: 16, borderRadius: 12, borderWidth: 1, alignItems: 'center',
-  },
-  removeBookmarkText: { fontSize: 16, fontWeight: '600' as const },
+  notificationText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 
-  // ── Landscape ──
+  // الوضع الأفقي
   landscapeControls: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     padding: 12, borderTopWidth: 1, gap: 10,
@@ -643,15 +420,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', flexWrap: 'wrap', gap: 6,
   },
-  speedLabel:   { fontSize: 13, fontWeight: '600' },
-  speedChips:   { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  speedChip: {
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: 14, borderWidth: 1,
-  },
+  speedLabel: { fontSize: 13, fontWeight: '600' },
+  speedChips: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  speedChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1 },
   speedChipText: { fontSize: 12, fontWeight: '600' },
-  autoScrollBtn: {
-    padding: 13, borderRadius: 16, alignItems: 'center',
-  },
-  autoScrollBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' as const },
+  autoScrollBtn: { padding: 13, borderRadius: 16, alignItems: 'center' },
+  autoScrollBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });

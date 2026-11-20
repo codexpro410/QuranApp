@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Appearance } from "react-native";
 import DarkColors, { LightColors } from "@/constants/colors";
@@ -19,27 +19,28 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     (async () => {
-      const saved = await AsyncStorage.getItem("APP_THEME");
-      if (saved) {
-        setMode(saved as ThemeMode);
-      } else {
-        const sys = Appearance.getColorScheme();
-        setMode(sys === "dark" ? "dark" : "light");
+      try {
+        const saved = await AsyncStorage.getItem("APP_THEME");
+        if (saved === "dark" || saved === "light") {
+          setMode(saved);
+        } else {
+          setMode(Appearance.getColorScheme() === "dark" ? "dark" : "light");
+        }
+      } catch {
+        // نكتفي بالوضع الافتراضي
       }
     })();
   }, []);
 
-  const toggleTheme = async () => {
-    const newMode = mode === "dark" ? "light" : "dark";
+  const toggleTheme = useCallback(async () => {
+    const newMode: ThemeMode = mode === "dark" ? "light" : "dark";
     setMode(newMode);
-    await AsyncStorage.setItem("APP_THEME", newMode);
-  };
+    await AsyncStorage.setItem("APP_THEME", newMode).catch(() => {});
+  }, [mode]);
 
-  return (
-    <ThemeContext.Provider value={{ mode, colors, toggleTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  const value = useMemo(() => ({ mode, colors, toggleTheme }), [mode, colors, toggleTheme]);
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 };
 
 export const useTheme = () => {

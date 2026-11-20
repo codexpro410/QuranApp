@@ -13,14 +13,12 @@ import {
   BookHeart, 
   Users, 
   Settings, 
-  Moon, 
-  Sun, 
   ChevronLeft,
   Bookmark,
   BookMarked,
   Heart
 } from 'lucide-react-native';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 import { useTheme } from '@/contexts/ThemeContext';
 
 interface MenuItemProps {
@@ -54,11 +52,11 @@ const MenuItem = React.memo(function MenuItem({ icon: Icon, title, subtitle, onP
 export default function MoreScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { mode, colors, toggleTheme } = useTheme();
+  const { mode, colors } = useTheme();
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
       
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <Text style={[styles.headerTitle, { color: colors.gold }]}>المزيد</Text>
@@ -116,19 +114,6 @@ export default function MoreScreen() {
         />
 
         <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>الإعدادات</Text>
-
-        <MenuItem
-          icon={mode === 'dark' ? Sun : Moon}
-          title={mode === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن'}
-          subtitle="تغيير مظهر التطبيق"
-          onPress={toggleTheme}
-          colors={colors}
-          rightElement={
-            <View style={[styles.toggleSwitch, { backgroundColor: colors.surfaceLight }]}>
-              <View style={[styles.toggleIndicator, { backgroundColor: colors.gold }]} />
-            </View>
-          }
-        />
 
         <MenuItem
           icon={Settings}
@@ -191,18 +176,5 @@ const styles = StyleSheet.create({
   menuSubtitle: {
     fontSize: 12,
     marginTop: 2,
-  },
-  toggleSwitch: {
-    width: 48,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  toggleIndicator: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignSelf: 'flex-end',
   },
 });

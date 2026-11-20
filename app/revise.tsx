@@ -1,11 +1,14 @@
 import { PageRecord, RevisionQuality, useHifz } from '@/contexts/HifzContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { mushafPages } from '@/data/mushafAssets';
+import { PageTint } from '@/components/MushafPage';
+import { getPageStyle } from '@/constants/pageStyles';
+import { usePageColor } from '@/contexts/PageColorContext';
+import { getPageSource, hasNightPages } from '@/data/mushafAssets';
 import { getJuzByPage, getSurahByPage } from '@/data/quranData';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 import {
     AlertTriangle,
     ArrowLeft,
@@ -21,7 +24,7 @@ import {
     Trophy,
     Zap
 } from 'lucide-react-native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Dimensions,
     ScrollView,
@@ -52,10 +55,12 @@ const SPACED_REPETITION_INFO = [
 ];
 
 export default function ReviseScreen() {
+  const { pageMode } = usePageColor();
+  const pageStyle = getPageStyle(pageMode);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors: c, mode } = useTheme();
-  const { getPagesForRevision, getOverduePages, recordRevision, pages, getPageRecord, settings, stats } = useHifz();
+  const { getPagesForRevision, getOverduePages, recordRevision, pages, getPageRecord, settings, stats, isLoaded } = useHifz();
 
   const [filterMode, setFilterMode] = useState<FilterMode>('due');
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -65,14 +70,30 @@ export default function ReviseScreen() {
   const [showFilter, setShowFilter] = useState(false);
   const [showTips, setShowTips] = useState(false);
 
-  const revisionList = useMemo((): PageRecord[] => {
-    if (filterMode === 'due') return getPagesForRevision();
-    if (filterMode === 'weak') return Object.values(pages).filter(p => p.status === 'weak');
+  // قائمة المراجعة تُؤخذ كلقطة ثابتة عند بدء الجلسة. لو كانت تُحسب مباشرة من الحالة لاختفت
+  // الصفحة التي تمت مراجعتها من القائمة فور تقييمها، فيقفز المؤشر ويتخطى صفحة بعدها.
+  const buildList = useCallback((fm: FilterMode): PageRecord[] => {
+    if (fm === 'due') return getPagesForRevision();
+    if (fm === 'weak') return Object.values(pages).filter(p => p.status === 'weak');
     return Object.values(pages).filter(p => p.status !== 'none').sort((a, b) => a.pageNum - b.pageNum);
-  }, [filterMode, getPagesForRevision, pages]);
+  }, [getPagesForRevision, pages]);
+  const buildListRef = useRef(buildList);
+  buildListRef.current = buildList;
+
+  const [revisionList, setRevisionList] = useState<PageRecord[]>([]);
+  const [sessionKey, setSessionKey] = useState(0);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    setRevisionList(buildListRef.current(filterMode));
+    setCurrentIndex(0);
+    setShowAnswer(false);
+    setSessionResults([]);
+    setSessionDone(false);
+  }, [isLoaded, filterMode, sessionKey]);
 
   const currentRecord = revisionList[currentIndex];
-  const pageImage = currentRecord ? mushafPages.find(p => p.page === currentRecord.pageNum)?.image : null;
+  const pageImage = currentRecord ? getPageSource(currentRecord.pageNum, pageStyle.useNightImages) : null;
   const surah = currentRecord ? getSurahByPage(currentRecord.pageNum) : null;
   const juz = currentRecord ? getJuzByPage(currentRecord.pageNum) : null;
 
@@ -102,12 +123,7 @@ export default function ReviseScreen() {
     }
   }, [currentIndex, revisionList]);
 
-  const restartSession = useCallback(() => {
-    setCurrentIndex(0);
-    setShowAnswer(false);
-    setSessionResults([]);
-    setSessionDone(false);
-  }, []);
+  const restartSession = useCallback(() => setSessionKey(k => k + 1), []);
 
   const qualityCounts = useMemo(() => {
     const counts = { again: 0, hard: 0, good: 0, easy: 0 };
@@ -120,7 +136,7 @@ export default function ReviseScreen() {
   if (revisionList.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: c.background }]}>
-        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <SystemBars light={mode === 'dark'} />
         <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: c.surface, borderBottomColor: c.border }]}>
           <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
             <ArrowLeft size={22} color={c.text} />
@@ -155,7 +171,7 @@ export default function ReviseScreen() {
     const successRate = total > 0 ? Math.round(((qualityCounts.good + qualityCounts.easy) / total) * 100) : 0;
     return (
       <View style={[styles.container, { backgroundColor: c.background }]}>
-        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <SystemBars light={mode === 'dark'} />
         <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: c.surface, borderBottomColor: c.border }]}>
           <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
             <ArrowLeft size={22} color={c.text} />
@@ -212,7 +228,7 @@ export default function ReviseScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: c.surface, borderBottomColor: c.border }]}>
@@ -282,7 +298,7 @@ export default function ReviseScreen() {
         </View>
 
         {/* Page Image */}
-        <View style={styles.imageContainer}>
+        <View style={[styles.imageContainer, { backgroundColor: pageStyle.useNightImages && hasNightPages ? '#000' : '#fff', isolation: 'isolate' }]}>
           {pageImage && (
             <Image
               source={pageImage}
@@ -291,6 +307,7 @@ export default function ReviseScreen() {
               cachePolicy="memory-disk"
             />
           )}
+          <PageTint pageMode={pageMode} nightMissing={pageStyle.useNightImages && !hasNightPages} />
 
           {!showAnswer && (
             <TouchableOpacity
@@ -345,7 +362,7 @@ export default function ReviseScreen() {
       </ScrollView>
 
       {/* Filter Sheet */}
-      {showFilter && <FilterSheet filterMode={filterMode} setFilterMode={(f) => { setFilterMode(f); restartSession(); }} onClose={() => setShowFilter(false)} c={c} />}
+      {showFilter && <FilterSheet filterMode={filterMode} setFilterMode={setFilterMode} onClose={() => setShowFilter(false)} c={c} />}
 
       {/* Spaced Repetition Info Modal */}
       {showTips && (

@@ -1,12 +1,15 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useRef } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
     Animated,
     Dimensions,
     StyleSheet,
     Text,
+    TouchableOpacity,
     View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
@@ -17,7 +20,28 @@ const DOAA_LINES = [
   'بِغَيْرِ حِسَابٍ وَلَا سَابِقَةِ عَذَابٍ',
 ];
 
-export default function DoaaSplash({ onComplete }: { onComplete: () => void }) {
+type Props = {
+  /** عند بدء التطبيق: يُستدعى تلقائياً بعد انتهاء الشاشة */
+  onComplete?: () => void;
+  /** عند فتحها من «المزيد»: يُستدعى عند الضغط على آمين أو زر الإغلاق (ولا تُغلق تلقائياً) */
+  onClose?: () => void;
+};
+
+/**
+ * كان الخطأ: هذا المكوّن مسجّل كمسار (route) في expo-router فيُستدعى بدون أي props،
+ * فبعد 3.5 ثانية ينفذ onComplete() وهو undefined ← "onComplete is not a function".
+ */
+export function DoaaSplash({ onComplete, onClose }: Props) {
+  const insets = useSafeAreaInsets();
+  const stars = useMemo(
+    () => [...Array(30)].map(() => ({
+      top: Math.random() * height,
+      left: Math.random() * width,
+      size: Math.random() * 3 + 1,
+      opacity: Math.random() * 0.5 + 0.3,
+    })),
+    []
+  );
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const lineAnims = useRef(DOAA_LINES.map(() => new Animated.Value(0))).current;
@@ -54,11 +78,11 @@ export default function DoaaSplash({ onComplete }: { onComplete: () => void }) {
       useNativeDriver: true,
     }).start();
 
-    const timer = setTimeout(() => {
-      onComplete();
-    }, 3500);
-
+    // شاشة البداية فقط تُغلق تلقائياً؛ شاشة الدعاء تنتظر المستخدم ليقرأ ويضغط آمين
+    if (!onComplete) return;
+    const timer = setTimeout(onComplete, 3500);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -70,18 +94,12 @@ export default function DoaaSplash({ onComplete }: { onComplete: () => void }) {
         end={{ x: 1, y: 1 }}
       >
         <View style={splashStyles.starsContainer}>
-          {[...Array(30)].map((_, i) => (
+          {stars.map((s, i) => (
             <View
               key={i}
               style={[
                 splashStyles.star,
-                {
-                  top: Math.random() * height,
-                  left: Math.random() * width,
-                  width: Math.random() * 3 + 1,
-                  height: Math.random() * 3 + 1,
-                  opacity: Math.random() * 0.5 + 0.3,
-                },
+                { top: s.top, left: s.left, width: s.size, height: s.size, opacity: s.opacity },
               ]}
             />
           ))}
@@ -146,9 +164,25 @@ export default function DoaaSplash({ onComplete }: { onComplete: () => void }) {
               },
             ]}
           >
-            <Text style={splashStyles.amen}>آمين</Text>
+            {onClose ? (
+              <TouchableOpacity onPress={onClose} activeOpacity={0.7}>
+                <Text style={splashStyles.amen}>آمين</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={splashStyles.amen}>آمين</Text>
+            )}
           </Animated.View>
         </Animated.View>
+
+        {onClose && (
+          <TouchableOpacity
+            style={[splashStyles.closeBtn, { top: insets.top + 12 }]}
+            onPress={onClose}
+            hitSlop={12}
+          >
+            <Text style={splashStyles.closeText}>✕</Text>
+          </TouchableOpacity>
+        )}
 
         <View style={splashStyles.footer}>
           <View style={splashStyles.crescentContainer}>
@@ -235,6 +269,17 @@ const splashStyles = StyleSheet.create({
     color: '#D4AF37',
     fontWeight: '700',
   },
+  closeBtn: {
+    position: 'absolute',
+    left: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  closeText: { color: '#f0f0f0', fontSize: 16 },
   footer: {
     position: 'absolute',
     bottom: 60,
@@ -247,3 +292,12 @@ const splashStyles = StyleSheet.create({
     color: '#D4AF37',
   },
 });
+// الشاشة كمسار (من «المزيد»): ترجع للخلف عند الضغط على آمين
+export default function DoaaScreen() {
+  const router = useRouter();
+  return (
+    <DoaaSplash
+      onClose={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+    />
+  );
+}

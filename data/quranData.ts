@@ -126,14 +126,20 @@ export const quranData: Surah[] = [
 
 export const TOTAL_PAGES = 604;
 
-export const getSurahByPage = (page: number): Surah | undefined => {
-  for (let i = quranData.length - 1; i >= 0; i--) {
-    if (quranData[i].page <= page) {
-      return quranData[i];
-    }
+// فهرس سريع: رقم الصفحة -> السورة (يُبنى مرة واحدة بدل البحث في كل استدعاء)
+const surahByPageIndex: Surah[] = (() => {
+  const arr: Surah[] = new Array(TOTAL_PAGES + 1);
+  let idx = 0;
+  for (let page = 1; page <= TOTAL_PAGES; page++) {
+    while (idx + 1 < quranData.length && quranData[idx + 1].page <= page) idx++;
+    arr[page] = quranData[idx];
   }
-  return quranData[0];
-};
+  return arr;
+})();
+
+const clampPage = (page: number) => Math.min(Math.max(Math.round(page) || 1, 1), TOTAL_PAGES);
+
+export const getSurahByPage = (page: number): Surah => surahByPageIndex[clampPage(page)];
 
 export const juzPages: { juz: number; startPage: number }[] = [
   { juz: 1, startPage: 1 },
@@ -142,11 +148,11 @@ export const juzPages: { juz: number; startPage: number }[] = [
   { juz: 4, startPage: 62 },
   { juz: 5, startPage: 82 },
   { juz: 6, startPage: 102 },
-  { juz: 7, startPage: 122 },
+  { juz: 7, startPage: 121 },
   { juz: 8, startPage: 142 },
   { juz: 9, startPage: 162 },
   { juz: 10, startPage: 182 },
-  { juz: 11, startPage: 202 },
+  { juz: 11, startPage: 201 },
   { juz: 12, startPage: 222 },
   { juz: 13, startPage: 242 },
   { juz: 14, startPage: 262 },
@@ -168,43 +174,41 @@ export const juzPages: { juz: number; startPage: number }[] = [
   { juz: 30, startPage: 582 },
 ];
 
+/** نطاق صفحات كل جزء [من، إلى] */
+export const JUZ_RANGES: [number, number][] = juzPages.map((j, i) => [
+  j.startPage,
+  i + 1 < juzPages.length ? juzPages[i + 1].startPage - 1 : TOTAL_PAGES,
+]);
+
 export const getJuzByPage = (page: number): number => {
+  const p = clampPage(page);
   for (let i = juzPages.length - 1; i >= 0; i--) {
-    if (page >= juzPages[i].startPage) {
-      return juzPages[i].juz;
-    }
+    if (p >= juzPages[i].startPage) return juzPages[i].juz;
   }
   return 1;
 };
 
+// الجزء الواحد = حزبان = ٨ أرباع. التقسيم هنا تقريبي حسب عدد صفحات الجزء
+// (لا توجد بيانات دقيقة لبداية كل ربع في الملفات).
+const getJuzProgress = (page: number) => {
+  const p = clampPage(page);
+  const juz = getJuzByPage(p);
+  const [from, to] = JUZ_RANGES[juz - 1];
+  const length = to - from + 1;
+  const fraction = Math.min((p - from) / length, 0.9999); // 0 → <1
+  return { juz, fraction };
+};
+
 export const getHizbByPage = (page: number) => {
-  const juz = getJuzByPage(page);
-  const juzStartPage = juzPages.find(j => j.juz === juz)?.startPage || 1;
-  const relativePage = page - juzStartPage;
-
-  // متوسط صفحات الجزء ≈ 20
-  const hizb = relativePage < 10 ? 1 : 2;
-
-  return {
-    juz,
-    hizb,               // 1 أو 2
-    globalHizb: (juz - 1) * 2 + hizb // رقم الحزب في المصحف كامل
-  };
+  const { juz, fraction } = getJuzProgress(page);
+  const hizb = fraction < 0.5 ? 1 : 2; // 1 أو 2 داخل الجزء
+  return { juz, hizb, globalHizb: (juz - 1) * 2 + hizb };
 };
 
 export const getRubByPage = (page: number) => {
-  const juz = getJuzByPage(page);
-  const juzStartPage = juzPages.find(j => j.juz === juz)?.startPage || 1;
-  const relativePage = page - juzStartPage;
-
-  // 4 أرباع لكل جزء
-  const rub = Math.min(4, Math.floor(relativePage / 5) + 1);
-
-  return {
-    juz,
-    rub,                // 1 → 4
-    globalRub: (juz - 1) * 4 + rub
-  };
+  const { juz, fraction } = getJuzProgress(page);
+  const rub = Math.floor(fraction * 8) + 1; // 1 → 8 داخل الجزء
+  return { juz, rub, globalRub: (juz - 1) * 8 + rub };
 };
 
 // المنازل (7 منازل) - تحزيب القرآن
@@ -217,3 +221,13 @@ export const getManzilByPage = (page: number) => {
   if (page <= 517) return 6;
   return 7;
 };
+
+// توحيد النص العربي للبحث: إزالة التشكيل وتوحيد الألف والياء والتاء المربوطة
+export const normalizeArabic = (s: string): string =>
+  s
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .trim()
+    .toLowerCase();

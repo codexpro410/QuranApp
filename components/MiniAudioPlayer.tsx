@@ -15,7 +15,7 @@ import {
   Repeat, Repeat1, RefreshCw, ChevronUp, ChevronDown,
   Volume2,
 } from 'lucide-react-native';
-import { useAudio, SPEED_OPTIONS, SPEED_LABELS, PlaybackSpeed, RepeatMode } from '@/contexts/AudioContext';
+import { useAudio, useAudioProgress, SPEED_OPTIONS, SPEED_LABELS, PlaybackSpeed, RepeatMode } from '@/contexts/AudioContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { quranData } from '@/data/quranData';
 
@@ -48,8 +48,6 @@ export default function MiniAudioPlayer({ onNext, onPrev, hasNext, hasPrev }: Mi
     currentSurah,
     isPlaying,
     isLoading,
-    progress,
-    duration,
     playbackSpeed,
     repeatMode,
     pauseAudio,
@@ -61,6 +59,7 @@ export default function MiniAudioPlayer({ onNext, onPrev, hasNext, hasPrev }: Mi
     toggleRepeatMode,
     currentSheikhId,
   } = useAudio();
+  const { progress, duration } = useAudioProgress();
 
   const [expanded, setExpanded] = useState(false);
   const [showSpeedModal, setShowSpeedModal] = useState(false);

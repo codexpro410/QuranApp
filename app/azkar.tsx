@@ -2,7 +2,7 @@ import { useAzkar } from '@/contexts/AzkarContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { azkarCategories } from '@/data/azkarData';
 import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 import { Bell, Check, ChevronLeft, RotateCcw, Sunrise, Sunset } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
@@ -26,6 +26,7 @@ export default function AzkarScreen() {
     notificationSettings,
     updateNotificationSettings,
     initializeNotifications,
+    isLoading: azkarLoading,
   } = useAzkar();
 
   const { mode, colors } = useTheme();
@@ -36,9 +37,21 @@ export default function AzkarScreen() {
     masaa: { hour: notificationSettings.masaaTime.hour, minute: notificationSettings.masaaTime.minute },
   });
 
+  // مزامنة حقول الوقت مع القيم المحفوظة بعد اكتمال التحميل
   useEffect(() => {
-    initializeNotifications();
-  }, [initializeNotifications]);
+    if (azkarLoading) return;
+    setLocalTime({
+      sabah: { ...notificationSettings.sabahTime },
+      masaa: { ...notificationSettings.masaaTime },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [azkarLoading]);
+
+  // تُجدول الإشعارات مرة واحدة بعد تحميل الإعدادات المحفوظة (وليس مع كل تغيير في الحالة)
+  useEffect(() => {
+    if (!azkarLoading) initializeNotifications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [azkarLoading]);
 
   const handleCategoryPress = (categoryId: string) => {
     router.push(`/azkar-detail?categoryId=${categoryId}` as unknown as any);
@@ -82,7 +95,7 @@ export default function AzkarScreen() {
 
   return (
     <>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
         <KeyboardAvoidingView
     style={{ flex: 1 }}
     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

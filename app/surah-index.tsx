@@ -1,7 +1,8 @@
 import MiniAudioPlayer from '@/components/MiniAudioPlayer';
 import { useAudio } from '@/contexts/AudioContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { quranData, Surah } from '@/data/quranData';
+import { useBookmarks } from '@/contexts/BookmarkContext';
+import { normalizeArabic, quranData, Surah } from '@/data/quranData';
 import { Sheikh } from '@/data/sheikhData';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -30,10 +31,18 @@ function isServerLikelyWorking(serverUrl: string): boolean {
 // Fixed item height for getItemLayout — avoids dynamic measurement
 const ITEM_HEIGHT = 62;
 
+// فهرس بحث جاهز (يُبنى مرة واحدة): اسم عربي بدون تشكيل + اسم لاتيني بدون رموز
+const searchIndex = quranData.map(s => ({
+  surah: s,
+  name: normalizeArabic(s.name),
+  latin: s.englishName.toLowerCase().replace(/[^a-z]/g, ''),
+}));
+
 export default function SurahIndexScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const { jumpToPage } = useBookmarks();
   const flatListRef = useRef<FlatList>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,13 +75,16 @@ export default function SurahIndexScreen() {
   );
 
   const filteredSurahs = useMemo(() => {
-    if (!searchQuery.trim()) return quranData;
-    const q = searchQuery.toLowerCase().trim();
-    return quranData.filter(s =>
-      s.name.includes(q) ||
-      s.englishName.toLowerCase().includes(q) ||
-      s.number.toString() === q
-    );
+    const q = normalizeArabic(searchQuery);
+    if (!q) return quranData;
+    const latin = q.replace(/[^a-z]/g, '');
+    return searchIndex
+      .filter(({ surah, name, latin: en }) =>
+        name.includes(q) ||
+        (latin.length > 0 && en.includes(latin)) ||
+        String(surah.number) === q
+      )
+      .map(({ surah }) => surah);
   }, [searchQuery]);
 
   const currentIndex = useMemo(() => {
@@ -165,12 +177,12 @@ export default function SurahIndexScreen() {
     }
   }, [activeSheikh, currentIndex, filteredSurahs, supportedSurahSet, handlePlay]);
 
+  // الضغط على السورة: نطلب الانتقال لصفحتها ثم نغلق الفهرس فتظهر الشاشة الرئيسية على الصفحة المطلوبة
   const handleSurahPress = useCallback((surah: Surah) => {
-    router.replace({
-      pathname: '/',
-      params: { goToPage: surah.page.toString() },
-    });
-  }, [router]);
+    jumpToPage(surah.page);
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [jumpToPage, router]);
 
   // Stable extraData to prevent re-renders on every frame
   const extraData = useMemo(() => ({
@@ -265,11 +277,13 @@ export default function SurahIndexScreen() {
         </View>
 
         <View style={styles.surahMeta}>
+          <View style={styles.metaInfo}>
+            <Text style={[styles.versesText, { color: colors.textSecondary }]}>{item.verses} آية</Text>
+            <Text style={[styles.pageText, { color: colors.gold }]}>ص {item.page}</Text>
+          </View>
           <View style={[styles.numberBadge, { backgroundColor: colors.surfaceLight }]}>
             <Text style={[styles.numberText, { color: colors.textSecondary }]}>{item.number}</Text>
           </View>
-          <Text style={[styles.versesText, { color: colors.textSecondary }]}>{item.verses} آية</Text>
-          <Text style={[styles.pageText, { color: colors.gold }]}>ص {item.page}</Text>
         </View>
       </TouchableOpacity>
     );
@@ -361,6 +375,7 @@ export default function SurahIndexScreen() {
         windowSize={8}
         getItemLayout={getItemLayout}
         extraData={extraData}
+        keyboardShouldPersistTaps="handled"
         removeClippedSubviews
         ListEmptyComponent={
           <View style={styles.emptyBox}>
@@ -427,7 +442,8 @@ const styles = StyleSheet.create({
   surahName: { fontSize: 17, fontWeight: '700' },
   sheikhRow: { flexDirection: 'row', alignItems: 'center' },
   badge: { fontSize: 10, fontWeight: '600' },
-  surahMeta: { alignItems: 'flex-end', gap: 4, minWidth: 44 },
+  surahMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  metaInfo: { alignItems: 'flex-end', gap: 2 },
   numberBadge: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   numberText: { fontSize: 11, fontWeight: '700' },
   versesText: { fontSize: 11 },

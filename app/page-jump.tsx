@@ -13,15 +13,16 @@ import { useRouter } from 'expo-router';
 import { X, Hash, ArrowLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { TOTAL_PAGES, getSurahByPage, getJuzByPage } from '@/data/quranData';
-import Colors from '@/constants/colors';
+import { useBookmarks } from '@/contexts/BookmarkContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 
 export default function PageJumpScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [pageInput, setPageInput] = useState('');
-  const { colors, mode } = useTheme(); // grab colors & mode
+  const { colors, mode } = useTheme();
+  const { jumpToPage } = useBookmarks();
 
   const pageNumber = parseInt(pageInput, 10);
   const isValidPage = !isNaN(pageNumber) && pageNumber >= 1 && pageNumber <= TOTAL_PAGES;
@@ -29,20 +30,19 @@ export default function PageJumpScreen() {
   const previewJuz = isValidPage ? getJuzByPage(pageNumber) : null;
 
   const handleGoToPage = useCallback(() => {
-    if (isValidPage) {
-      router.replace({
-        pathname: '/',
-        params: { goToPage: pageNumber.toString() },
-      });
-    }
-  }, [isValidPage, pageNumber, router]);
+    if (!isValidPage) return;
+    Haptics.selectionAsync().catch(() => {});
+    jumpToPage(pageNumber);
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [isValidPage, pageNumber, jumpToPage, router]);
 
   const quickPages = [1, 50, 100, 200, 300, 400, 500, 604];
 
   return (
     <>
       {/* StatusBar respects mode */}
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
 
       <KeyboardAvoidingView
         style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}
@@ -72,6 +72,8 @@ export default function PageJumpScreen() {
               onChangeText={setPageInput}
               keyboardType="number-pad"
               maxLength={3}
+              returnKeyType="go"
+              onSubmitEditing={handleGoToPage}
               autoFocus
             />
             <Text style={[styles.totalPages, { color: colors.textSecondary }]}>من {TOTAL_PAGES}</Text>
@@ -122,7 +124,6 @@ export default function PageJumpScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -131,12 +132,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
   closeButton: {
     padding: 8,
     borderRadius: 20,
-    backgroundColor: Colors.surface,
   },
   headerTitle: {
     flexDirection: 'row',
@@ -144,7 +143,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerText: {
-    color: Colors.text,
     fontSize: 18,
     fontWeight: '700',
   },
@@ -158,41 +156,34 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
     borderRadius: 16,
     padding: 16,
     gap: 12,
   },
   input: {
     flex: 1,
-    color: Colors.gold,
     fontSize: 32,
     fontWeight: '700',
     textAlign: 'center',
   },
   totalPages: {
-    color: Colors.textSecondary,
     fontSize: 16,
   },
   preview: {
     alignItems: 'center',
     marginTop: 24,
     padding: 16,
-    backgroundColor: Colors.surface,
     borderRadius: 12,
   },
   previewLabel: {
-    color: Colors.textSecondary,
     fontSize: 14,
     marginBottom: 8,
   },
   previewSurah: {
-    color: Colors.gold,
     fontSize: 20,
     fontWeight: '600',
   },
   previewJuz: {
-    color: Colors.textSecondary,
     fontSize: 14,
     marginTop: 4,
   },
@@ -200,17 +191,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.gold,
     borderRadius: 12,
     padding: 16,
     marginTop: 24,
     gap: 8,
   },
-  goButtonDisabled: {
-    backgroundColor: Colors.surfaceLight,
-  },
   goButtonText: {
-    color: Colors.background,
     fontSize: 18,
     fontWeight: '700',
   },
@@ -218,7 +204,6 @@ const styles = StyleSheet.create({
     marginTop: 32,
   },
   quickPagesLabel: {
-    color: Colors.textSecondary,
     fontSize: 14,
     marginBottom: 12,
     textAlign: 'center',
@@ -230,7 +215,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   quickPageButton: {
-    backgroundColor: Colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
@@ -238,7 +222,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   quickPageText: {
-    color: Colors.text,
     fontSize: 16,
     fontWeight: '600',
   },

@@ -1,7 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { JUZ_RANGES, TOTAL_PAGES } from '@/data/quranData';
+import { cancelScheduledByPrefix, ensureNotificationPermission, getNotifications } from '@/utils/notifications';
 
-const TOTAL_PAGES = 604;
+const HIFZ_REMINDER_ID = 'hifz_daily';
+const HIFZ_REMINDER_HOUR = 20;
 
 export type PageStatus = 'none' | 'memorized' | 'weak' | 'strong';
 export type RevisionQuality = 'again' | 'hard' | 'good' | 'easy';
@@ -83,15 +86,8 @@ const defaultPageRecord = (pageNum: number): PageRecord => ({
   interval: 1,
 });
 
-// Juz page ranges (standard Uthmani mushaf)
-const JUZ_PAGES: [number, number][] = [
-  [1, 21], [22, 41], [42, 61], [62, 81], [82, 101],
-  [102, 121], [122, 141], [142, 162], [163, 181], [182, 201],
-  [202, 221], [222, 241], [242, 261], [262, 281], [282, 301],
-  [302, 321], [322, 341], [342, 361], [362, 381], [382, 401],
-  [402, 421], [422, 441], [442, 461], [462, 481], [482, 501],
-  [502, 521], [522, 541], [542, 561], [562, 581], [582, 604],
-];
+// نطاقات صفحات الأجزاء (مشتقة من بيانات المصحف في quranData)
+const JUZ_PAGES: [number, number][] = JUZ_RANGES;
 
 const HifzContext = createContext<HifzContextType | null>(null);
 
@@ -130,8 +126,20 @@ function sm2(record: PageRecord, quality: RevisionQuality): Partial<PageRecord> 
   };
 }
 
+// تاريخ محلي بصيغة YYYY-MM-DD (toISOString يعطي تاريخ UTC فيُخطئ في اليوم بعد منتصف الليل بتوقيت القاهرة)
+function dateStr(d: Date) {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 function todayStr() {
-  return new Date().toISOString().split('T')[0];
+  return dateStr(new Date());
+}
+
+function parseDateStr(s: string) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
 }
 
 export function HifzProvider({ children }: { children: React.ReactNode }) {
@@ -299,8 +307,31 @@ export function HifzProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.multiRemove(['hifz_pages', 'hifz_logs']);
   }, []);
 
-  // Compute stats
-  const stats: HifzStats = (() => {
+  // ── تنبيه المراجعة اليومي ──
+  useEffect(() => {
+    if (!isLoaded) return;
+    let cancelled = false;
+    (async () => {
+      const N = await getNotifications();
+      if (!N || cancelled) return;
+      await cancelScheduledByPrefix(HIFZ_REMINDER_ID);
+      if (!settings.notificationsEnabled) return;
+      if (!(await ensureNotificationPermission()) || cancelled) return;
+      await N.scheduleNotificationAsync({
+        identifier: HIFZ_REMINDER_ID,
+        content: {
+          title: '📖 وقت المراجعة',
+          body: 'حان وقت مراجعة حفظك اليوم، ولو صفحة واحدة',
+          sound: true,
+        },
+        trigger: { type: N.SchedulableTriggerInputTypes.DAILY, hour: HIFZ_REMINDER_HOUR, minute: 0 },
+      }).catch(() => {});
+    })();
+    return () => { cancelled = true; };
+  }, [isLoaded, settings.notificationsEnabled]);
+
+  // ── الإحصائيات ──
+  const stats: HifzStats = useMemo(() => {
     const allRecords = Object.values(pages);
     const totalMemorized = allRecords.filter(p => p.status !== 'none').length;
     const totalStrong = allRecords.filter(p => p.status === 'strong').length;
@@ -312,27 +343,34 @@ export function HifzProvider({ children }: { children: React.ReactNode }) {
     const todayMemorized = todayLog?.pagesMemorized.length ?? 0;
     const todayRevised = todayLog?.pagesRevised.length ?? 0;
 
-    // Streak calculation
+    // السلسلة المتتالية: الأيام التي فيها نشاط (حفظ أو مراجعة)
+    const activeDates = new Set(
+      dailyLogs
+        .filter(l => l.pagesMemorized.length > 0 || l.pagesRevised.length > 0)
+        .map(l => l.date)
+    );
+
+    // السلسلة الحالية: تُحسب من اليوم، وإن لم يكن هناك نشاط اليوم بعد فمن أمس (حتى لا تنكسر قبل أن تبدأ يومك)
+    const cursor = new Date();
+    if (!activeDates.has(dateStr(cursor))) cursor.setDate(cursor.getDate() - 1);
     let currentStreak = 0;
-    let longestStreak = 0;
-    let tempStreak = 0;
-    const sortedLogs = [...dailyLogs].sort((a, b) => b.date.localeCompare(a.date));
-    
-    let checkDate = new Date();
-    for (const log of sortedLogs) {
-      const logDate = log.date;
-      const expectedDate = checkDate.toISOString().split('T')[0];
-      if (logDate === expectedDate && (log.pagesMemorized.length > 0 || log.pagesRevised.length > 0)) {
-        tempStreak++;
-        if (currentStreak === 0) currentStreak = tempStreak;
-        longestStreak = Math.max(longestStreak, tempStreak);
-        checkDate.setDate(checkDate.getDate() - 1);
-      } else {
-        break;
-      }
+    while (activeDates.has(dateStr(cursor))) {
+      currentStreak++;
+      cursor.setDate(cursor.getDate() - 1);
     }
 
-    // Estimate completion
+    // أطول سلسلة عبر كل السجل
+    let longestStreak = 0;
+    let run = 0;
+    let prev: Date | null = null;
+    for (const d of [...activeDates].sort()) {
+      const cur = parseDateStr(d);
+      run = prev && Math.round((cur.getTime() - prev.getTime()) / 86400000) === 1 ? run + 1 : 1;
+      longestStreak = Math.max(longestStreak, run);
+      prev = cur;
+    }
+
+    // الإنجاز المتوقع
     let estimatedCompletionDate: string | null = null;
     if (settings.dailyMemorizeTarget > 0 && totalMemorized < TOTAL_PAGES) {
       const remaining = TOTAL_PAGES - totalMemorized;
@@ -342,10 +380,15 @@ export function HifzProvider({ children }: { children: React.ReactNode }) {
       estimatedCompletionDate = completionDate.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
     }
 
-    const completedJuzs = JUZ_PAGES.map((_, i) => i + 1).filter(j => {
-      const prog = getJuzProgress(j);
-      return prog.percent === 100;
-    });
+    const completedJuzs = JUZ_PAGES
+      .map((_, i) => i + 1)
+      .filter(j => {
+        const [from, to] = JUZ_PAGES[j - 1];
+        for (let p = from; p <= to; p++) {
+          if (!pages[p] || pages[p].status === 'none') return false;
+        }
+        return true;
+      });
 
     return {
       totalMemorized,
@@ -359,26 +402,30 @@ export function HifzProvider({ children }: { children: React.ReactNode }) {
       completedJuzs,
       percentComplete,
     };
-  })();
+  }, [pages, dailyLogs, settings.dailyMemorizeTarget]);
+
+  const value = useMemo<HifzContextType>(() => ({
+    pages,
+    settings,
+    dailyLogs,
+    stats,
+    isLoaded,
+    markPageMemorized,
+    markPageStatus,
+    markRangeMemorized,
+    recordRevision,
+    getPagesForRevision,
+    getOverduePages,
+    updateSettings,
+    getPageRecord,
+    getJuzProgress,
+    resetAll,
+  }), [pages, settings, dailyLogs, stats, isLoaded, markPageMemorized, markPageStatus,
+      markRangeMemorized, recordRevision, getPagesForRevision, getOverduePages, updateSettings,
+      getPageRecord, getJuzProgress, resetAll]);
 
   return (
-    <HifzContext.Provider value={{
-      pages,
-      settings,
-      dailyLogs,
-      stats,
-      isLoaded,
-      markPageMemorized,
-      markPageStatus,
-      markRangeMemorized,
-      recordRevision,
-      getPagesForRevision,
-      getOverduePages,
-      updateSettings,
-      getPageRecord,
-      getJuzProgress,
-      resetAll,
-    }}>
+    <HifzContext.Provider value={value}>
       {children}
     </HifzContext.Provider>
   );

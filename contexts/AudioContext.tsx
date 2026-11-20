@@ -1,10 +1,19 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Audio } from 'expo-av';
-import { File, Directory, Paths } from 'expo-file-system';
-import { Platform, Alert, AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Audio, AVPlaybackStatus } from 'expo-av';
+// ملاحظة: في Expo SDK 54 دوال الـ API القديم (getInfoAsync / createDownloadResumable ...)
+// نُقلت إلى expo-file-system/legacy، واستدعاؤها من المسار الرئيسي يرمي خطأ عند التشغيل.
+import * as FileSystem from 'expo-file-system/legacy';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Alert, AppState, Platform } from 'react-native';
 
 export type PlaybackSpeed = 0.75 | 1 | 1.25 | 1.5 | 2;
 export type RepeatMode = 'none' | 'one' | 'all';
@@ -21,8 +30,6 @@ export interface AudioContextType {
   isLoading: boolean;
   isDownloading: { [key: string]: boolean };
   downloadProgress: { [key: string]: number };
-  progress: number;
-  duration: number;
   currentSheikhId: string | null;
   playbackSpeed: PlaybackSpeed;
   repeatMode: RepeatMode;
@@ -46,10 +53,18 @@ export interface AudioContextType {
   registerOnNext: (cb: () => void) => void;
 }
 
+/** التقدم والمدة في Context منفصل حتى لا تُعاد معالجة كل الشاشات كل نصف ثانية أثناء التشغيل. */
+interface AudioProgressType {
+  progress: number;
+  duration: number;
+}
+
 const AudioContext = createContext<AudioContextType | null>(null);
+const AudioProgressContext = createContext<AudioProgressType>({ progress: 0, duration: 0 });
 
 const DOWNLOADED_FILES_KEY = 'AUDIO_DOWNLOADED_FILES';
 const PLAYBACK_SPEED_KEY = 'AUDIO_PLAYBACK_SPEED';
+const AUDIO_DIR_NAME = 'quran_audio';
 
 export const SPEED_OPTIONS: PlaybackSpeed[] = [0.75, 1, 1.25, 1.5, 2];
 export const SPEED_LABELS: Record<PlaybackSpeed, string> = {
@@ -59,6 +74,12 @@ export const SPEED_LABELS: Record<PlaybackSpeed, string> = {
   1.5: '1.5×',
   2: '2×',
 };
+
+const surahFileName = (surahNumber: number) => `${surahNumber.toString().padStart(3, '0')}.mp3`;
+const sheikhDir = (sheikhId: string) => `${FileSystem.documentDirectory}${AUDIO_DIR_NAME}/${sheikhId}/`;
+const localUriFor = (sheikhId: string, surahNumber: number) =>
+  `${sheikhDir(sheikhId)}${surahFileName(surahNumber)}`;
+const downloadKeyOf = (sheikhId: string, surahNumber: number) => `${sheikhId}_${surahNumber}`;
 
 export const AudioProvider = ({ children }: { children: React.ReactNode }) => {
   const [currentSurah, setCurrentSurah] = useState<number | null>(null);
@@ -75,17 +96,51 @@ export const AudioProvider = ({ children }: { children: React.ReactNode }) => {
 
   const soundRef = useRef<Audio.Sound | null>(null);
   const isLoadingRef = useRef(false);
-  const currentUrlRef = useRef<string | null>(null);
-const wasPlayingRef = useRef(false);
-const isFinishedRef = useRef(false);
+  const wasPlayingRef = useRef(false);
+  const isFinishedRef = useRef(false);
+  const progressRef = useRef(0);
+  const durationRef = useRef(0);
+  const downloadingRef = useRef<Record<string, boolean>>({});
+  const downloadedRef = useRef<DownloadedFiles>({});
+  const repeatModeRef = useRef<RepeatMode>('none');
+  const playbackSpeedRef = useRef<PlaybackSpeed>(1);
+  const onNextRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => { repeatModeRef.current = repeatMode; }, [repeatMode]);
+  useEffect(() => { playbackSpeedRef.current = playbackSpeed; }, [playbackSpeed]);
+  useEffect(() => { downloadedRef.current = downloadedFiles; }, [downloadedFiles]);
+
+  // ── التحميل الأولي + وضع الصوت + متابعة حالة التطبيق ──
   useEffect(() => {
-    // Load saved settings
-    AsyncStorage.getItem(DOWNLOADED_FILES_KEY).then(data => {
-      if (data) setDownloadedFiles(JSON.parse(data));
-    });
-    AsyncStorage.getItem(PLAYBACK_SPEED_KEY).then(data => {
-      if (data) setPlaybackSpeedState(parseFloat(data) as PlaybackSpeed);
-    });
+    (async () => {
+      try {
+        const [files, speed] = await Promise.all([
+          AsyncStorage.getItem(DOWNLOADED_FILES_KEY),
+          AsyncStorage.getItem(PLAYBACK_SPEED_KEY),
+        ]);
+        if (speed) setPlaybackSpeedState(parseFloat(speed) as PlaybackSpeed);
+
+        if (files && Platform.OS !== 'web') {
+          // مسار مجلد التطبيق قد يتغير بعد التحديث (خصوصاً على iOS)، لذلك نعيد بناء المسارات
+          // من المسار الحالي ونحذف أي ملف لم يعد موجوداً.
+          const stored: DownloadedFiles = JSON.parse(files);
+          const verified: DownloadedFiles = {};
+          for (const sheikhId of Object.keys(stored)) {
+            for (const num of Object.keys(stored[sheikhId])) {
+              const uri = localUriFor(sheikhId, Number(num));
+              const info = await FileSystem.getInfoAsync(uri).catch(() => null);
+              if (info?.exists) {
+                verified[sheikhId] = { ...verified[sheikhId], [Number(num)]: uri };
+              }
+            }
+          }
+          setDownloadedFiles(verified);
+          AsyncStorage.setItem(DOWNLOADED_FILES_KEY, JSON.stringify(verified)).catch(() => {});
+        }
+      } catch (e) {
+        console.log('Audio init error:', e);
+      }
+    })();
 
     Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
@@ -93,77 +148,66 @@ const isFinishedRef = useRef(false);
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
       staysActiveInBackground: true,
+    }).catch(() => {});
+
+    const appStateSub = AppState.addEventListener('change', async (nextState) => {
+      const sound = soundRef.current;
+      if (!sound) return;
+      try {
+        if (nextState === 'active') {
+          if (wasPlayingRef.current) await sound.playAsync();
+        } else {
+          const status = await sound.getStatusAsync();
+          wasPlayingRef.current = status.isLoaded && status.isPlaying;
+        }
+      } catch {
+        // الصوت قد يكون أُفرغ أثناء التنقل
+      }
     });
 
-
-const appStateSub = AppState.addEventListener('change', async (nextState) => {
-  if (nextState === 'active') {
-    // App came back to foreground — resume if was playing before
-    if (wasPlayingRef.current && soundRef.current) {
-      await soundRef.current.playAsync();
-      setIsPlaying(true);
-    }
-  } else {
-    // App went to background/inactive — track if was playing
-    if (soundRef.current) {
-      const status = await soundRef.current.getStatusAsync() as any;
-      wasPlayingRef.current = status.isLoaded && status.isPlaying;
-    }
-  }
-});
-
-return () => {
-  appStateSub.remove();
-  if (soundRef.current) {
-    soundRef.current.setOnPlaybackStatusUpdate(null);
-    soundRef.current.unloadAsync();
-    soundRef.current = null;
-  }
-};
+    return () => {
+      appStateSub.remove();
+      const sound = soundRef.current;
+      if (sound) {
+        sound.setOnPlaybackStatusUpdate(null);
+        sound.unloadAsync().catch(() => {});
+        soundRef.current = null;
+      }
+    };
   }, []);
 
-  const getDownloadKey = useCallback((sheikhId: string, surahNumber: number) => {
-    return `${sheikhId}_${surahNumber}`;
-  }, []);
+  const isFileDownloaded = useCallback(
+    (sheikhId: string, surahNumber: number): boolean => !!downloadedFiles[sheikhId]?.[surahNumber],
+    [downloadedFiles]
+  );
 
-  const isFileDownloaded = useCallback((sheikhId: string, surahNumber: number): boolean => {
-    return !!downloadedFiles[sheikhId]?.[surahNumber];
-  }, [downloadedFiles]);
+  const getLocalFileUri = useCallback(
+    (sheikhId: string, surahNumber: number): string | null =>
+      downloadedFiles[sheikhId]?.[surahNumber] || null,
+    [downloadedFiles]
+  );
 
-  const getLocalFileUri = useCallback((sheikhId: string, surahNumber: number): string | null => {
-    return downloadedFiles[sheikhId]?.[surahNumber] || null;
-  }, [downloadedFiles]);
-
-  const saveDownloadedFile = useCallback(async (sheikhId: string, surahNumber: number, fileUri: string) => {
-    setDownloadedFiles(prev => {
-      const newState = {
-        ...prev,
-        [sheikhId]: { ...prev[sheikhId], [surahNumber]: fileUri }
-      };
-      AsyncStorage.setItem(DOWNLOADED_FILES_KEY, JSON.stringify(newState));
-      return newState;
-    });
+  const persistDownloaded = useCallback((next: DownloadedFiles) => {
+    downloadedRef.current = next;
+    setDownloadedFiles(next);
+    AsyncStorage.setItem(DOWNLOADED_FILES_KEY, JSON.stringify(next)).catch(() => {});
   }, []);
 
   const deleteDownload = useCallback(async (sheikhId: string, surahNumber: number) => {
-    const uri = downloadedFiles[sheikhId]?.[surahNumber];
+    const uri = downloadedRef.current[sheikhId]?.[surahNumber];
     if (!uri) return;
     try {
-      const info = await FileSystem.getInfoAsync(uri);
-      if (info.exists) await FileSystem.deleteAsync(uri);
+      await FileSystem.deleteAsync(uri, { idempotent: true });
     } catch (e) {
       console.warn('Delete file error:', e);
     }
-    setDownloadedFiles(prev => {
-      const newState = { ...prev };
-      if (newState[sheikhId]) {
-        delete newState[sheikhId][surahNumber];
-        if (Object.keys(newState[sheikhId]).length === 0) delete newState[sheikhId];
-      }
-      AsyncStorage.setItem(DOWNLOADED_FILES_KEY, JSON.stringify(newState));
-      return newState;
-    });
-  }, [downloadedFiles]);
+    const next: DownloadedFiles = { ...downloadedRef.current };
+    const sheikhFiles = { ...next[sheikhId] };
+    delete sheikhFiles[surahNumber];
+    if (Object.keys(sheikhFiles).length === 0) delete next[sheikhId];
+    else next[sheikhId] = sheikhFiles;
+    persistDownloaded(next);
+  }, [persistDownloaded]);
 
   const checkInternetConnection = useCallback(async (): Promise<boolean> => {
     if (Platform.OS === 'web') return true;
@@ -172,202 +216,199 @@ return () => {
   }, []);
 
   const downloadAudio = useCallback(async (url: string, sheikhId: string, surahNumber: number): Promise<boolean> => {
-    const downloadKey = getDownloadKey(sheikhId, surahNumber);
-
-    if (isDownloading[downloadKey]) return false;
-
-    const isConnected = await checkInternetConnection();
-    if (!isConnected) {
-      Alert.alert('لا يوجد اتصال', 'يرجى التحقق من اتصالك بالإنترنت');
-      return false;
-    }
+    const key = downloadKeyOf(sheikhId, surahNumber);
+    if (downloadingRef.current[key]) return false;
 
     if (Platform.OS === 'web') {
       Alert.alert('غير متاح', 'التحميل غير متاح على الويب');
       return false;
     }
 
-    try {
-      setIsDownloading(prev => ({ ...prev, [downloadKey]: true }));
-      setDownloadProgress(prev => ({ ...prev, [downloadKey]: 0 }));
-
-      const audioDir = new Directory(Paths.document, 'quran_audio', sheikhId);
-      audioDir.create({ intermediates: true, idempotent: true });
-
-      const fileName = `${surahNumber.toString().padStart(3, '0')}.mp3`;
-      const destFile = new File(audioDir, fileName);
-
-      const downloadResumable = FileSystem.createDownloadResumable(
-        url,
-        destFile.uri,
-        {},
-        (p: { totalBytesWritten: number; totalBytesExpectedToWrite: number }) => {
-          const percent = (p.totalBytesWritten / p.totalBytesExpectedToWrite) * 100;
-          setDownloadProgress(prev => ({ ...prev, [downloadKey]: Math.floor(percent) }));
-        }
-      );
-
-      const result = await downloadResumable.downloadAsync();
-      if (result?.uri) {
-        await saveDownloadedFile(sheikhId, surahNumber, result.uri);
-        setDownloadProgress(prev => ({ ...prev, [downloadKey]: 100 }));
-        Alert.alert('تم التحميل', 'تم تحميل السورة بنجاح ✓');
-        return true;
-      }
+    if (!(await checkInternetConnection())) {
+      Alert.alert('لا يوجد اتصال', 'يرجى التحقق من اتصالك بالإنترنت');
       return false;
+    }
+
+    downloadingRef.current[key] = true;
+    setIsDownloading(prev => ({ ...prev, [key]: true }));
+    setDownloadProgress(prev => ({ ...prev, [key]: 0 }));
+
+    const destUri = localUriFor(sheikhId, surahNumber);
+    try {
+      await FileSystem.makeDirectoryAsync(sheikhDir(sheikhId), { intermediates: true }).catch(() => {});
+
+      const resumable = FileSystem.createDownloadResumable(url, destUri, {}, (p) => {
+        if (p.totalBytesExpectedToWrite > 0) {
+          const percent = Math.floor((p.totalBytesWritten / p.totalBytesExpectedToWrite) * 100);
+          setDownloadProgress(prev => (prev[key] === percent ? prev : { ...prev, [key]: percent }));
+        }
+      });
+
+      const result = await resumable.downloadAsync();
+      // الخادم قد يرد بـ 404 ويُحفظ ملف خطأ بدل الصوت، لذلك نتحقق من حالة الرد
+      if (!result || (result.status && result.status !== 200)) {
+        await FileSystem.deleteAsync(destUri, { idempotent: true }).catch(() => {});
+        Alert.alert('خطأ في التحميل', 'تعذّر تحميل هذه السورة من الخادم. جرّب قارئاً آخر.');
+        return false;
+      }
+
+      persistDownloaded({
+        ...downloadedRef.current,
+        [sheikhId]: { ...downloadedRef.current[sheikhId], [surahNumber]: destUri },
+      });
+      setDownloadProgress(prev => ({ ...prev, [key]: 100 }));
+      Alert.alert('تم التحميل', 'تم تحميل السورة بنجاح ✓');
+      return true;
     } catch (error) {
       console.error('Download error:', error);
+      await FileSystem.deleteAsync(destUri, { idempotent: true }).catch(() => {});
       Alert.alert('خطأ في التحميل', 'حدث خطأ أثناء تحميل الملف. تأكد من الاتصال بالإنترنت.');
       return false;
     } finally {
-      setIsDownloading(prev => ({ ...prev, [downloadKey]: false }));
+      downloadingRef.current[key] = false;
+      setIsDownloading(prev => ({ ...prev, [key]: false }));
     }
-  }, [isDownloading, getDownloadKey, checkInternetConnection, saveDownloadedFile]);
+  }, [checkInternetConnection, persistDownloaded]);
 
-  const repeatModeRef = useRef<RepeatMode>('none');
+  const registerOnNext = useCallback((cb: () => void) => {
+    onNextRef.current = cb;
+  }, []);
 
-// Keep ref in sync
-useEffect(() => {
-  repeatModeRef.current = repeatMode;
-}, [repeatMode]);
-
-const onNextRef = useRef<(() => void) | null>(null);
-
-// expose a setter in context
-const registerOnNext = useCallback((cb: () => void) => {
-  onNextRef.current = cb;
-}, []);
-const onPlaybackStatusUpdate = useCallback(async (status: any) => {
-  if (!status.isLoaded) return;
-  setProgress(status.positionMillis || 0);
-  setDuration(status.durationMillis || 0);
-  setIsPlaying(status.isPlaying);
-  if (status.isBuffering) setIsLoading(true);
-  else setIsLoading(false);
-
-  if (status.didJustFinish) {
-  isFinishedRef.current = true;
-  setIsPlaying(false);
-  setProgress(0);
-  if (repeatModeRef.current === 'one' && soundRef.current) {
-    isFinishedRef.current = false;
-    await soundRef.current.replayAsync();
-  } else if (repeatModeRef.current === 'all' && onNextRef.current) {
-    isFinishedRef.current = false;
-    onNextRef.current();
-  } else {
-    // Stop first, then seek to beginning — order matters!
-    if (soundRef.current) {
-      await soundRef.current.stopAsync();
-      await soundRef.current.setPositionAsync(0);
-    }
-  }
-}
-}, []);
-
-  // Add this useEffect after the repeatMode state declaration
-useEffect(() => {
-  if (soundRef.current) {
-    soundRef.current.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
-  }
-}, [onPlaybackStatusUpdate, repeatMode]);
-
-  const _loadAndPlay = useCallback(async (uri: string, surahNumber: number, sheikhId: string) => {
-  if (isLoadingRef.current) return;
-  isLoadingRef.current = true;
-  setIsLoading(true);
-
-  try {
-    if (soundRef.current) {
-      soundRef.current.setOnPlaybackStatusUpdate(null);
-      await soundRef.current.unloadAsync();
-      soundRef.current = null;
+  const onPlaybackStatusUpdate = useCallback(async (status: AVPlaybackStatus) => {
+    if (!status.isLoaded) {
+      if (status.error) console.warn('Playback error:', status.error);
+      return;
     }
 
-    const { sound } = await Audio.Sound.createAsync(
-      { uri },
-      { shouldPlay: true, rate: playbackSpeed, shouldCorrectPitch: true },
-      onPlaybackStatusUpdate
-    );
+    if (status.positionMillis !== progressRef.current) {
+      progressRef.current = status.positionMillis;
+      setProgress(status.positionMillis);
+    }
+    const dur = status.durationMillis ?? 0;
+    if (dur !== durationRef.current) {
+      durationRef.current = dur;
+      setDuration(dur);
+    }
+    setIsPlaying(status.isPlaying);
+    setIsLoading(status.isBuffering);
 
-    isFinishedRef.current = false;  // ← reset here
-    soundRef.current = sound;
-    currentUrlRef.current = uri;
-    setCurrentSurah(surahNumber);
-    setCurrentSheikhId(sheikhId);
-    setIsPlaying(true);
-    setProgress(0);
-  } catch (error) {
-    console.error('Error loading audio:', error);
-    Alert.alert('خطأ في التشغيل', 'تعذّر تشغيل هذه السورة. يرجى المحاولة مرة أخرى.');
-  } finally {
-    isLoadingRef.current = false;
-    setIsLoading(false);
-  }
-}, [playbackSpeed, onPlaybackStatusUpdate]);
+    if (status.didJustFinish) {
+      const sound = soundRef.current;
+      setIsPlaying(false);
+      if (repeatModeRef.current === 'one' && sound) {
+        isFinishedRef.current = false;
+        await sound.replayAsync();
+      } else if (repeatModeRef.current === 'all' && onNextRef.current) {
+        isFinishedRef.current = false;
+        onNextRef.current();
+      } else {
+        isFinishedRef.current = true;
+        progressRef.current = 0;
+        setProgress(0);
+        if (sound) {
+          // الإيقاف أولاً ثم الرجوع لبداية الملف، الترتيب مهم
+          await sound.stopAsync().catch(() => {});
+          await sound.setPositionAsync(0).catch(() => {});
+        }
+      }
+    }
+  }, []);
+
+  const loadAndPlay = useCallback(async (uri: string, surahNumber: number, sheikhId: string) => {
+    if (isLoadingRef.current) return;
+    isLoadingRef.current = true;
+    setIsLoading(true);
+
+    try {
+      if (soundRef.current) {
+        soundRef.current.setOnPlaybackStatusUpdate(null);
+        await soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+      }
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: true, rate: playbackSpeedRef.current, shouldCorrectPitch: true },
+        onPlaybackStatusUpdate
+      );
+
+      isFinishedRef.current = false;
+      soundRef.current = sound;
+      progressRef.current = 0;
+      setCurrentSurah(surahNumber);
+      setCurrentSheikhId(sheikhId);
+      setIsPlaying(true);
+      setProgress(0);
+    } catch (error) {
+      console.error('Error loading audio:', error);
+      Alert.alert('خطأ في التشغيل', 'تعذّر تشغيل هذه السورة. يرجى المحاولة مرة أخرى.');
+    } finally {
+      isLoadingRef.current = false;
+      setIsLoading(false);
+    }
+  }, [onPlaybackStatusUpdate]);
 
   const playOnline = useCallback(async (url: string, surahNumber: number, sheikhId: string) => {
-    const isConnected = await checkInternetConnection();
-    if (!isConnected) {
+    if (!(await checkInternetConnection())) {
       Alert.alert('لا يوجد اتصال', 'يرجى التحقق من اتصالك بالإنترنت للتشغيل المباشر');
       return;
     }
-    await _loadAndPlay(url, surahNumber, sheikhId);
-  }, [_loadAndPlay, checkInternetConnection]);
+    await loadAndPlay(url, surahNumber, sheikhId);
+  }, [loadAndPlay, checkInternetConnection]);
 
   const playOffline = useCallback(async (sheikhId: string, surahNumber: number) => {
-    const localUri = getLocalFileUri(sheikhId, surahNumber);
+    const localUri = downloadedRef.current[sheikhId]?.[surahNumber];
     if (!localUri) {
       Alert.alert('غير محمّل', 'لم يتم تحميل هذه السورة بعد');
       return;
     }
-    await _loadAndPlay(localUri, surahNumber, sheikhId);
-  }, [_loadAndPlay, getLocalFileUri]);
+    await loadAndPlay(localUri, surahNumber, sheikhId);
+  }, [loadAndPlay]);
 
   const pauseAudio = useCallback(async () => {
-    if (soundRef.current) {
+    if (!soundRef.current) return;
+    try {
       await soundRef.current.pauseAsync();
       setIsPlaying(false);
+    } catch (e) {
+      console.warn('pauseAudio error:', e);
     }
   }, []);
 
-const resumeAudio = useCallback(async () => {
-  if (!soundRef.current) return;
-  try {
-    if (isFinishedRef.current) {
-      // Track finished — do a full replay from start
-      isFinishedRef.current = false;
-      await soundRef.current.setPositionAsync(0);
-      await soundRef.current.playAsync();
+  const resumeAudio = useCallback(async () => {
+    const sound = soundRef.current;
+    if (!sound) return;
+    try {
+      if (isFinishedRef.current) {
+        isFinishedRef.current = false;
+        await sound.setPositionAsync(0);
+      }
+      const status = await sound.getStatusAsync();
+      if (!status.isLoaded) return;
+      await sound.playAsync();
       setIsPlaying(true);
-      return;
+    } catch (e) {
+      console.warn('resumeAudio error:', e);
     }
-
-    // Normal resume from paused position
-    const status = await soundRef.current.getStatusAsync() as any;
-    if (!status.isLoaded) return;
-
-    await soundRef.current.playAsync();
-    setIsPlaying(true);
-  } catch (e) {
-    console.warn('resumeAudio error:', e);
-  }
-}, []);
+  }, []);
 
   const seekTo = useCallback(async (position: number) => {
     if (!soundRef.current) return;
-    const clamped = Math.max(0, Math.min(position, duration));
-    await soundRef.current.setPositionAsync(clamped);
-  }, [duration]);
+    const clamped = Math.max(0, Math.min(position, durationRef.current));
+    try {
+      await soundRef.current.setPositionAsync(clamped);
+    } catch (e) {
+      console.warn('seekTo error:', e);
+    }
+  }, []);
 
   const seekBy = useCallback(async (seconds: number) => {
-    const newPos = Math.max(0, Math.min(progress + seconds * 1000, duration));
-    await seekTo(newPos);
-  }, [progress, duration, seekTo]);
+    await seekTo(progressRef.current + seconds * 1000);
+  }, [seekTo]);
 
   const setPlaybackSpeed = useCallback(async (speed: PlaybackSpeed) => {
     setPlaybackSpeedState(speed);
-    AsyncStorage.setItem(PLAYBACK_SPEED_KEY, String(speed));
+    AsyncStorage.setItem(PLAYBACK_SPEED_KEY, String(speed)).catch(() => {});
     if (soundRef.current) {
       try {
         await soundRef.current.setRateAsync(speed, true);
@@ -378,21 +419,19 @@ const resumeAudio = useCallback(async () => {
   }, []);
 
   const toggleRepeatMode = useCallback(() => {
-    setRepeatMode(prev => {
-      if (prev === 'none') return 'one';
-      if (prev === 'one') return 'all';
-      return 'none';
-    });
+    setRepeatMode(prev => (prev === 'none' ? 'one' : prev === 'one' ? 'all' : 'none'));
   }, []);
 
   const stopAudio = useCallback(async () => {
-    if (soundRef.current) {
-      soundRef.current.setOnPlaybackStatusUpdate(null);
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
-      soundRef.current = null;
+    const sound = soundRef.current;
+    soundRef.current = null;
+    if (sound) {
+      sound.setOnPlaybackStatusUpdate(null);
+      await sound.stopAsync().catch(() => {});
+      await sound.unloadAsync().catch(() => {});
     }
-    currentUrlRef.current = null;
+    progressRef.current = 0;
+    durationRef.current = 0;
     setCurrentSurah(null);
     setCurrentSheikhId(null);
     setIsPlaying(false);
@@ -401,41 +440,44 @@ const resumeAudio = useCallback(async () => {
     setDuration(0);
   }, []);
 
-  const setPlayingState = useCallback((playing: boolean) => {
-    setIsPlaying(playing);
-  }, []);
+  const value = useMemo<AudioContextType>(() => ({
+    currentSurah,
+    isPlaying,
+    isLoading,
+    isDownloading,
+    downloadProgress,
+    currentSheikhId,
+    playbackSpeed,
+    repeatMode,
+    setCurrentSurah,
+    setPlaying: setIsPlaying,
+    isFileDownloaded,
+    getLocalFileUri,
+    downloadAudio,
+    deleteDownload,
+    playOnline,
+    playOffline,
+    pauseAudio,
+    resumeAudio,
+    seekTo,
+    seekBy,
+    stopAudio,
+    setPlaybackSpeed,
+    setRepeatMode,
+    toggleRepeatMode,
+    registerOnNext,
+  }), [
+    currentSurah, isPlaying, isLoading, isDownloading, downloadProgress, currentSheikhId,
+    playbackSpeed, repeatMode, isFileDownloaded, getLocalFileUri, downloadAudio, deleteDownload,
+    playOnline, playOffline, pauseAudio, resumeAudio, seekTo, seekBy, stopAudio,
+    setPlaybackSpeed, toggleRepeatMode, registerOnNext,
+  ]);
+
+  const progressValue = useMemo(() => ({ progress, duration }), [progress, duration]);
 
   return (
-    <AudioContext.Provider value={{
-      currentSurah,
-      isPlaying,
-      isLoading,
-      isDownloading,
-      downloadProgress,
-      progress,
-      duration,
-      currentSheikhId,
-      playbackSpeed,
-      repeatMode,
-      setCurrentSurah,
-      setPlaying: setPlayingState,
-      isFileDownloaded,
-      getLocalFileUri,
-      downloadAudio,
-      deleteDownload,
-      playOnline,
-      playOffline,
-      pauseAudio,
-      resumeAudio,
-      seekTo,
-      seekBy,
-      stopAudio,
-      setPlaybackSpeed,
-      setRepeatMode,
-      toggleRepeatMode,
-      registerOnNext 
-    }}>
-      {children}
+    <AudioContext.Provider value={value}>
+      <AudioProgressContext.Provider value={progressValue}>{children}</AudioProgressContext.Provider>
     </AudioContext.Provider>
   );
 };
@@ -445,3 +487,5 @@ export const useAudio = () => {
   if (!context) throw new Error('useAudio must be used within AudioProvider');
   return context;
 };
+
+export const useAudioProgress = () => useContext(AudioProgressContext);

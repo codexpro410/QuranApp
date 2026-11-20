@@ -12,7 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { X, RotateCcw, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react-native';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSebha } from '@/contexts/SebhaContext';
 
@@ -158,7 +158,7 @@ export default function SebhaScreen() {
 
   return (
     <>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
       <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity

@@ -9,7 +9,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { X, Bookmark, Trash2 } from 'lucide-react-native';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useBookmarks, Bookmark as BookmarkType, getBookmarkColor, getBookmarkLabel, BookmarkType as BType } from '@/contexts/BookmarkContext';
 
@@ -24,7 +24,7 @@ export default function BookmarksScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { mode, colors } = useTheme();
-  const { bookmarks, removeBookmark } = useBookmarks();
+  const { bookmarks, removeBookmark, jumpToPage } = useBookmarks();
   const [filter, setFilter] = useState<BType | 'all'>('all');
 
   const filteredBookmarks = filter === 'all' 
@@ -34,11 +34,10 @@ export default function BookmarksScreen() {
   const sortedBookmarks = [...filteredBookmarks].sort((a, b) => b.createdAt - a.createdAt);
 
   const handleBookmarkPress = useCallback((bookmark: BookmarkType) => {
-    router.replace({
-      pathname: '/',
-      params: { goToPage: bookmark.page.toString() },
-    });
-  }, [router]);
+    jumpToPage(bookmark.page);
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [jumpToPage, router]);
 
   const handleRemoveBookmark = useCallback((page: number) => {
     removeBookmark(page);
@@ -91,7 +90,7 @@ export default function BookmarksScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
       
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity style={[styles.closeButton, { backgroundColor: colors.surface }]} onPress={() => router.back()}>

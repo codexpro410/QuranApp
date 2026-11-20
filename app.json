@@ -6,10 +6,6 @@
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "quranapp",
-    "assetBundlePatterns": [
-      "assets/mushaf/*",
-      "assets/*.json"
-    ],
     "splash": {
       "backgroundColor": "#000000"
     },
@@ -19,12 +15,14 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.codepro410.QuranApp",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
       "backgroundColor": "#000000",
-      "screenOrientation": "unspecified",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -43,6 +41,12 @@
       "expo-router",
       "expo-location",
       [
+        "expo-notifications",
+        {
+          "color": "#D4AF37"
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
@@ -54,7 +58,7 @@
           }
         }
       ],
-      // "expo-image"
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true,

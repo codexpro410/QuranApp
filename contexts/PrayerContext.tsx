@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+import { cancelScheduledByPrefix, ensureNotificationPermission, getNotifications } from '@/utils/notifications';
 
 export type PrayerName = 'fajr' | 'dhuhr' | 'asr' | 'maghrib' | 'isha';
 
@@ -76,24 +76,6 @@ const DEFAULT_SETTINGS: PrayerSettings = {
 };
 
 const STORAGE_KEY = 'prayer_settings_v2';
-
-// ── Notifications lazy loader ─────────────────────────────────────────────────
-// expo-notifications cannot be loaded in Expo Go on Android (SDK 53+).
-// Loading it at module scope throws immediately, so we import it on demand.
-const canUseNotifications =
-  !(Constants.appOwnership === 'expo' && Platform.OS === 'android');
-
-type NotificationsModule = typeof import('expo-notifications');
-
-let NotificationsPromise: Promise<NotificationsModule> | null = null;
-
-function getNotifications(): Promise<NotificationsModule> | null {
-  if (!canUseNotifications) return null;
-  if (!NotificationsPromise) {
-    NotificationsPromise = import('expo-notifications');
-  }
-  return NotificationsPromise;
-}
 
 // ── Sun math (Meeus) ──────────────────────────────────────────────────────────
 function toRad(d: number) { return d * Math.PI / 180; }
@@ -196,115 +178,172 @@ export function formatTime(d: Date): string {
 
 const PrayerContext = createContext<PrayerContextType | null>(null);
 
+const PRAYER_ORDER: PrayerName[] = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
+const PRAYER_NOTIF_PREFIX = 'prayer_';
+const SCHEDULE_DAYS = 5; // iOS يسمح بـ 64 إشعاراً معلقاً كحد أقصى (5 أيام × 5 صلوات × 2 = 50)
+
+function buildDayList(date: Date, s: PrayerSettings): PrayerTime[] {
+  const method = CALCULATION_METHODS.find(m => m.id === s.method) ?? CALCULATION_METHODS[0];
+  const raw = calculatePrayers(date, s.latitude, s.longitude, method, s.manualOverrides);
+  return PRAYER_ORDER.map(name => ({
+    name,
+    nameAr: PRAYER_NAMES_AR[name],
+    time: raw[name],
+    timeStr: formatTime(raw[name]),
+  }));
+}
+
+function dayKey(d: Date) {
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function PrayerProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<PrayerSettings>(DEFAULT_SETTINGS);
-  const [prayers, setPrayers]   = useState<PrayerTime[]>([]);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [prayers, setPrayers] = useState<PrayerTime[]>([]);
   const [nextPrayer, setNextPrayer] = useState<PrayerTime | null>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then(v => {
-      if (v) {
-        const parsed = JSON.parse(v);
-        setSettings({
-          ...DEFAULT_SETTINGS,
-          ...parsed,
-          manualOverrides: parsed.manualOverrides ?? {},
-        });
-      }
-    });
+    AsyncStorage.getItem(STORAGE_KEY)
+      .then(v => {
+        if (v) {
+          const parsed = JSON.parse(v);
+          setSettings({
+            ...DEFAULT_SETTINGS,
+            ...parsed,
+            manualOverrides: parsed.manualOverrides ?? {},
+          });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setSettingsLoaded(true));
   }, []);
 
-  const computePrayers = useCallback((s: PrayerSettings): PrayerTime[] => {
-    const method = CALCULATION_METHODS.find(m => m.id === s.method) ?? CALCULATION_METHODS[0];
-    const raw = calculatePrayers(new Date(), s.latitude, s.longitude, method, s.manualOverrides);
-    const order: PrayerName[] = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
-    const list: PrayerTime[] = order.map(name => ({
-      name,
-      nameAr: PRAYER_NAMES_AR[name],
-      time: raw[name],
-      timeStr: formatTime(raw[name]),
-    }));
+  const computePrayers = useCallback((s: PrayerSettings) => {
+    const today = new Date();
+    const list = buildDayList(today, s);
     setPrayers(list);
-    const now = new Date();
-    setNextPrayer(list.find(p => p.time > now) ?? list[0]);
+
+    // بعد العشاء تكون الصلاة التالية فجر الغد (وليس فجر اليوم الذي مضى)
+    let next = list.find(p => p.time > today) ?? null;
+    if (!next) {
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      next = buildDayList(tomorrow, s)[0];
+    }
+    setNextPrayer(next);
     return list;
   }, []);
 
   useEffect(() => { computePrayers(settings); }, [settings, computePrayers]);
 
-  const scheduleNotifications = useCallback(async (s: PrayerSettings, list: PrayerTime[]) => {
+  // تحديث «الصلاة التالية» تلقائياً عند حلول وقتها، وعند عودة التطبيق للواجهة
+  useEffect(() => {
+    if (!nextPrayer) return;
+    const ms = Math.min(Math.max(nextPrayer.time.getTime() - Date.now() + 1000, 1000), 2147483000);
+    const id = setTimeout(() => computePrayers(settingsRef.current), ms);
+    return () => clearTimeout(id);
+  }, [nextPrayer, computePrayers]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') computePrayers(settingsRef.current);
+    });
+    return () => sub.remove();
+  }, [computePrayers]);
+
+  // جدولة الإشعارات لأيام قادمة (تُحدَّث عند كل تغيير في الإعدادات وعند فتح التطبيق).
+  // نلغي إشعارات الصلاة فقط حتى لا نمسّ إشعارات الأذكار.
+  const scheduleNotifications = useCallback(async (s: PrayerSettings) => {
     const Notifications = await getNotifications();
-    if (!Notifications) return; // Expo Go on Android — skip silently
+    if (!Notifications) return;
 
-    await Notifications.cancelAllScheduledNotificationsAsync();
+    await cancelScheduledByPrefix(PRAYER_NOTIF_PREFIX);
     if (!s.enabled) return;
+    if (!(await ensureNotificationPermission())) return;
 
-    for (const prayer of list) {
-      if (!s.enabledPrayers[prayer.name]) continue;
+    const now = new Date();
+    for (let d = 0; d < SCHEDULE_DAYS; d++) {
+      const date = new Date(now);
+      date.setDate(date.getDate() + d);
+      const key = dayKey(date);
 
-      // 15-min reminder
-      if (s.notifyBefore15) {
-        const reminderTime = new Date(prayer.time.getTime() - 15 * 60 * 1000);
-        if (reminderTime > new Date()) {
+      for (const prayer of buildDayList(date, s)) {
+        if (!s.enabledPrayers[prayer.name]) continue;
+
+        if (s.notifyBefore15) {
+          const reminderTime = new Date(prayer.time.getTime() - 15 * 60 * 1000);
+          if (reminderTime > now) {
+            await Notifications.scheduleNotificationAsync({
+              identifier: `${PRAYER_NOTIF_PREFIX}${key}_${prayer.name}_pre`,
+              content: {
+                title: `🕌 تنبيه: ${prayer.nameAr}`,
+                body: `متبقي 15 دقيقة على أذان ${prayer.nameAr} — الساعة ${prayer.timeStr}`,
+                sound: true,
+              },
+              trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: reminderTime },
+            }).catch(() => {});
+          }
+        }
+
+        if (s.notifyAtTime && prayer.time > now) {
           await Notifications.scheduleNotificationAsync({
+            identifier: `${PRAYER_NOTIF_PREFIX}${key}_${prayer.name}_at`,
             content: {
-              title: `🕌 تنبيه: ${prayer.nameAr}`,
-              body: `متبقي 15 دقيقة على أذان ${prayer.nameAr} — الساعة ${prayer.timeStr}`,
+              title: `🕌 حان أذان ${prayer.nameAr}`,
+              body: `حان وقت صلاة ${prayer.nameAr}`,
               sound: true,
             },
-            trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: reminderTime },
-          });
+            trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: prayer.time },
+          }).catch(() => {});
         }
-      }
-
-      // At prayer time
-      if (s.notifyAtTime && prayer.time > new Date()) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: `🕌 حان أذان ${prayer.nameAr}`,
-            body: `حان وقت صلاة ${prayer.nameAr}`,
-            sound: true,
-          },
-          trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: prayer.time },
-        });
       }
     }
   }, []);
 
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    scheduleNotifications(settings);
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') scheduleNotifications(settingsRef.current);
+    });
+    return () => sub.remove();
+  }, [settingsLoaded, settings, scheduleNotifications]);
+
   const saveAndApply = useCallback(async (updated: PrayerSettings) => {
     setSettings(updated);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    const list = computePrayers(updated);
-    await scheduleNotifications(updated, list);
-  }, [computePrayers, scheduleNotifications]);
+  }, []);
 
   const updateSettings = useCallback(async (s: Partial<PrayerSettings>) => {
-    await saveAndApply({ ...settings, ...s });
-  }, [settings, saveAndApply]);
+    await saveAndApply({ ...settingsRef.current, ...s });
+  }, [saveAndApply]);
 
   const setManualOverride = useCallback(async (prayer: PrayerName, hour: number, minute: number) => {
+    const cur = settingsRef.current;
     await saveAndApply({
-      ...settings,
-      manualOverrides: { ...settings.manualOverrides, [prayer]: { hour, minute } },
+      ...cur,
+      manualOverrides: { ...cur.manualOverrides, [prayer]: { hour, minute } },
     });
-  }, [settings, saveAndApply]);
+  }, [saveAndApply]);
 
   const clearManualOverride = useCallback(async (prayer: PrayerName) => {
-    const newOverrides = { ...settings.manualOverrides };
+    const cur = settingsRef.current;
+    const newOverrides = { ...cur.manualOverrides };
     delete newOverrides[prayer];
-    await saveAndApply({ ...settings, manualOverrides: newOverrides });
-  }, [settings, saveAndApply]);
+    await saveAndApply({ ...cur, manualOverrides: newOverrides });
+  }, [saveAndApply]);
 
-  const refresh = useCallback(() => { computePrayers(settings); }, [settings, computePrayers]);
+  const refresh = useCallback(() => { computePrayers(settingsRef.current); }, [computePrayers]);
 
-  return (
-    <PrayerContext.Provider value={{
-      prayers, nextPrayer, settings,
-      updateSettings, setManualOverride, clearManualOverride, refresh,
-    }}>
-      {children}
-    </PrayerContext.Provider>
-  );
+  const value = useMemo(() => ({
+    prayers, nextPrayer, settings,
+    updateSettings, setManualOverride, clearManualOverride, refresh,
+  }), [prayers, nextPrayer, settings, updateSettings, setManualOverride, clearManualOverride, refresh]);
+
+  return <PrayerContext.Provider value={value}>{children}</PrayerContext.Provider>;
 }
 
 export function usePrayer() {

@@ -1,13 +1,14 @@
-import React, { useMemo } from "react";
-import { View, Text, FlatList, StyleSheet, TouchableOpacity } from "react-native";
-import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
-import tafsirDataSet from "@/data/quran_with_tafsir.json";
-import tafsir_by_page from "@/data/tafsir_by_page.json";
-import { useTheme } from "@/contexts/ThemeContext";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StatusBar } from 'expo-status-bar';
-import { useQuran } from "@/contexts/QuranContext"; // ✅ هنا
-import { RawTafsirPage } from "@/data/tafsirData";
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import SystemBars from '@/components/SystemBars';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { useBookmarks } from '@/contexts/BookmarkContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import tafsirByPage from '@/data/tafsir_by_page.json';
+import { TOTAL_PAGES, getJuzByPage, getSurahByPage } from '@/data/quranData';
 
 export interface TafsirAyah {
   surah: number;
@@ -17,78 +18,118 @@ export interface TafsirAyah {
   tafsir: string;
 }
 
-export interface TafsirByPage {
-  [page: string]: TafsirAyah[];
-}
+type TafsirByPage = Record<string, TafsirAyah[]>;
+const data = tafsirByPage as unknown as TafsirByPage;
 
 export default function TafsirScreen() {
-    const router = useRouter();
+  const router = useRouter();
   const { colors, mode } = useTheme();
   const insets = useSafeAreaInsets();
-
-  
   const params = useLocalSearchParams<{ page?: string }>();
-  const { currentPage } = useQuran();
+  const { currentPage } = useBookmarks();
+  const listRef = useRef<FlatList<TafsirAyah>>(null);
 
-  // الرقم الحالي للصفحة سواء من params أو context
-  const pageNum = useMemo(() => {
-    if (params.page) return Number(params.page);
-    return currentPage;
-  }, [params.page, currentPage]);
+  const initialPage = Number(params.page) || currentPage;
+  const [pageNum, setPageNum] = useState(Math.min(Math.max(initialPage, 1), TOTAL_PAGES));
 
-  // TypeScript: نفهمه أن البيانات من النوع RawTafsirPage
-  // const tafsirData = tafsirDataSet as RawTafsirPage[];
+  const ayat = useMemo(() => data[String(pageNum)] ?? [], [pageNum]);
+  const surah = getSurahByPage(pageNum);
 
-  const tafsirData = tafsir_by_page as TafsirByPage;
+  const goTo = useCallback((p: number) => {
+    setPageNum(Math.min(Math.max(p, 1), TOTAL_PAGES));
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, []);
 
-  // الصفحة المطلوبة
-  // const pageData = useMemo(() => {
-  //   return tafsirData.find(p => p.page === pageNum);
-  // }, [pageNum]);
-  const pageData = useMemo(() => {
-  return tafsirData[pageNum.toString()] || [];
-}, [pageNum]);
+  const close = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [router]);
+
   return (
     <>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-
-      <View style={[styles.container, {
-        backgroundColor: colors.background,
-        paddingTop: insets.top + 12,
-        paddingBottom: insets.bottom + 12,
-      }]}>
-        <TouchableOpacity onPress={() => { if(router.canGoBack()){router.back()}else{router.replace('/')}}}>
-          <Text style={{ color: colors.gold, fontSize: 18 }}>رجوع</Text>
-        </TouchableOpacity>
+      <SystemBars light={mode === 'dark'} />
+      <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top + 8 }]}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity style={[styles.iconBtn, { backgroundColor: colors.surface }]} onPress={close}>
+            <X size={20} color={colors.text} />
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Text style={[styles.title, { color: colors.gold }]}>تفسير {surah.name}</Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              صفحة {pageNum} • الجزء {getJuzByPage(pageNum)}
+            </Text>
+          </View>
+          <View style={styles.iconBtn} />
+        </View>
 
         <FlatList
-          data={pageData || []}
-          keyExtractor={(item:any) => item.ayah_key}
-          renderItem={({ item }:any) => (
-            <View style={styles.ayahBox}>
+          ref={listRef}
+          data={ayat}
+          keyExtractor={item => item.ayah_key}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <Text style={[styles.empty, { color: colors.textSecondary }]}>لا يوجد تفسير لهذه الصفحة</Text>
+          }
+          renderItem={({ item }) => (
+            <View style={[styles.ayahBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Text style={[styles.ayahNum, { color: colors.gold }]}>
-                الآية {item.ayah}
+                {surah.number === item.surah ? surah.name : `سورة ${item.surah}`} • الآية {item.ayah}
               </Text>
-              <Text style={styles.ayahText}>
-                {item.text}
-              </Text>
-              <Text style={[styles.tafsirText, {
-                color: mode === "dark" ? "#E6D9A3" : "#2B2B2B"
-              }]}>
+              <Text style={[styles.ayahText, { color: colors.text }]}>{item.text}</Text>
+              <Text style={[styles.tafsirText, { color: mode === 'dark' ? '#E6D9A3' : '#2B2B2B' }]}>
                 {item.tafsir}
               </Text>
             </View>
           )}
         />
+
+        <View style={[styles.footer, { borderTopColor: colors.border, paddingBottom: insets.bottom + 10 }]}>
+          <TouchableOpacity
+            style={[styles.navBtn, { backgroundColor: colors.surfaceLight, opacity: pageNum >= TOTAL_PAGES ? 0.4 : 1 }]}
+            disabled={pageNum >= TOTAL_PAGES}
+            onPress={() => goTo(pageNum + 1)}
+          >
+            <ChevronLeft size={20} color={colors.gold} />
+            <Text style={[styles.navText, { color: colors.text }]}>الصفحة التالية</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.navBtn, { backgroundColor: colors.surfaceLight, opacity: pageNum <= 1 ? 0.4 : 1 }]}
+            disabled={pageNum <= 1}
+            onPress={() => goTo(pageNum - 1)}
+          >
+            <Text style={[styles.navText, { color: colors.text }]}>الصفحة السابقة</Text>
+            <ChevronRight size={20} color={colors.gold} />
+          </TouchableOpacity>
+        </View>
       </View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  container:{ flex:1, padding:16 },
-  ayahBox:{ marginBottom:20 },
-  ayahNum:{ fontSize:14, marginBottom:6 },
-  ayahText:{ color:"red", fontSize:20, textAlign:"right", marginBottom:6 },
-  tafsirText:{ fontSize:15, textAlign:"right", lineHeight:26 }
+  container: { flex: 1 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1,
+  },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  headerCenter: { alignItems: 'center' },
+  title: { fontSize: 18, fontWeight: '700' },
+  subtitle: { fontSize: 12, marginTop: 2 },
+  list: { padding: 16, gap: 12 },
+  empty: { textAlign: 'center', marginTop: 40, fontSize: 15 },
+  ayahBox: { padding: 14, borderRadius: 14, borderWidth: 1 },
+  ayahNum: { fontSize: 13, marginBottom: 8, textAlign: 'right', fontWeight: '600' },
+  ayahText: { fontSize: 22, textAlign: 'right', marginBottom: 10, lineHeight: 38 },
+  tafsirText: { fontSize: 15, textAlign: 'right', lineHeight: 27 },
+  footer: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1,
+  },
+  navBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14,
+  },
+  navText: { fontSize: 13, fontWeight: '600' },
 });

@@ -1,75 +1,63 @@
-import { Stack } from "expo-router";
-import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useState } from "react";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import React, { useEffect, useState } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import { AudioProvider } from "@/contexts/AudioContext";
-import { AzkarProvider } from "@/contexts/AzkarContext";
-import { BookmarkProvider } from "@/contexts/BookmarkContext";
-import { HifzProvider } from "@/contexts/HifzContext";
-import { PageColorProvider } from "@/contexts/PageColorContext";
-import { PrayerProvider } from "@/contexts/PrayerContext";
-import { QuranProvider } from "@/contexts/QuranContext";
-import { SebhaProvider } from "@/contexts/SebhaContext";
-import { ThemeProvider } from "@/contexts/ThemeContext";
-import DoaaSplash from "./splash-doaa";
+import { AudioProvider } from '@/contexts/AudioContext';
+import { AzkarProvider } from '@/contexts/AzkarContext';
+import { BookmarkProvider } from '@/contexts/BookmarkContext';
+import { HifzProvider } from '@/contexts/HifzContext';
+import { PageColorProvider } from '@/contexts/PageColorContext';
+import { PrayerProvider } from '@/contexts/PrayerContext';
+import { SebhaProvider } from '@/contexts/SebhaContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
+import { DoaaSplash } from './splash-doaa';
+
+// نُبقي شاشة البداية الأصلية ظاهرة حتى يجهز التطبيق (بدلاً من إخفائها فوراً ثم ظهور شاشة فارغة)
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" options={{ headerShown: false, orientation: 'all' }} />
-      <Stack.Screen name="azkar" options={{ headerShown: false }} />
-      <Stack.Screen name="more" options={{ headerShown: false }} />
-      <Stack.Screen name="tafsir" options={{ headerShown: false, presentation: 'card' }} />
-      <Stack.Screen name="surah-index" options={{ headerShown: false, presentation: 'modal' }} />
-      <Stack.Screen name="sheikh-select" options={{ headerShown: false, presentation: 'modal' }} />
-      <Stack.Screen name="azkar-detail" options={{ headerShown: false }} />
-      <Stack.Screen name="sebha" options={{ headerShown: false }} />
-      <Stack.Screen name="doaa" options={{ headerShown: false }} />
-      <Stack.Screen name="khtma-doaa" options={{ headerShown: false }} />
-      <Stack.Screen name="splash-doaa" options={{ headerShown: false, animation: 'fade' }} />
-      <Stack.Screen name="bookmarks" options={{ headerShown: false, presentation: 'modal' }} />
-      <Stack.Screen name="settings" options={{ headerShown: false, presentation: 'modal' }} />
-      <Stack.Screen name="hifz" options={{ headerShown: false }} />
-      <Stack.Screen name="memorize" options={{ headerShown: false }} />
-      <Stack.Screen name="revise" options={{ headerShown: false }} />
-      <Stack.Screen name="prayer-times" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="index" options={{ orientation: 'all' }} />
+      <Stack.Screen name="tafsir" options={{ presentation: 'card' }} />
+      <Stack.Screen name="surah-index" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="sheikh-select" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="splash-doaa" options={{ animation: 'fade' }} />
+      <Stack.Screen name="bookmarks" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="prayer-times" options={{ presentation: 'modal' }} />
     </Stack>
   );
 }
+
+// ترتيب المزوّدين: كل مزوّد لا يعتمد على غيره، فنجمعها في سلسلة واحدة مقروءة
+const PROVIDERS = [
+  PageColorProvider,
+  HifzProvider,
+  ThemeProvider,
+  BookmarkProvider,
+  AudioProvider,
+  AzkarProvider,
+  SebhaProvider,
+  PrayerProvider,
+];
 
 export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
-    SplashScreen.hideAsync();
+    SplashScreen.hideAsync().catch(() => {});
   }, []);
 
-  return (
-    <PageColorProvider>
-    <HifzProvider>
-    <QuranProvider>
-    <ThemeProvider>
-      <BookmarkProvider>
-        <AudioProvider>
-          <AzkarProvider>
-            <SebhaProvider>
-              <PrayerProvider>
-                <GestureHandlerRootView style={{ flex: 1 }}>
-                  {showSplash ? (
-                    <DoaaSplash onComplete={() => setShowSplash(false)} />
-                  ) : (
-                    <RootLayoutNav />
-                  )}
-                </GestureHandlerRootView>
-              </PrayerProvider>
-            </SebhaProvider>
-          </AzkarProvider>
-        </AudioProvider>
-      </BookmarkProvider>
-    </ThemeProvider>
-    </QuranProvider>
-    </HifzProvider>
-    </PageColorProvider>
+  const content = (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      {showSplash ? <DoaaSplash onComplete={() => setShowSplash(false)} /> : <RootLayoutNav />}
+    </GestureHandlerRootView>
+  );
+
+  return PROVIDERS.reduceRight(
+    (children, Provider) => <Provider>{children}</Provider>,
+    content
   );
 }

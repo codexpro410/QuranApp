@@ -1,16 +1,17 @@
 import MethodPickerModal from '@/components/MethodPickerModal';
 import { useHifz } from '@/contexts/HifzContext';
-import { PageColorMode, usePageColor } from '@/contexts/PageColorContext';
+import { PAGE_STYLES } from '@/constants/pageStyles';
+import { usePageColor } from '@/contexts/PageColorContext';
 import { CALCULATION_METHODS, PrayerName, usePrayer } from '@/contexts/PrayerContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { ensureNotificationPermission } from '@/utils/notifications';
 import * as Location from 'expo-location';
-import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 import {
   Bell, BookOpen, Calculator,
   Clock, Eye, Info,
-  MapPin, Maximize, Moon, Sun,
+  MapPin, Maximize,
   Sunrise, Type, X,
 } from 'lucide-react-native';
 import React, { useCallback, useState } from 'react';
@@ -25,13 +26,6 @@ const PRAYER_LABELS: Record<PrayerName, string> = {
   fajr: 'الفجر', dhuhr: 'الظهر', asr: 'العصر', maghrib: 'المغرب', isha: 'العشاء',
 };
 
-const PAGE_COLOR_OPTIONS: {
-  mode: PageColorMode; label: string; bg: string; textColor: string; borderColor: string;
-}[] = [
-  { mode: 'white', label: 'أبيض', bg: '#ffffff', textColor: '#333333', borderColor: '#cccccc' },
-  { mode: 'paper', label: 'ورقي', bg: '#f5e6c8', textColor: '#4a3000', borderColor: '#c8a050' },
-];
-
 function methodForCountry(country: string): number {
   if (['Saudi Arabia', 'UAE', 'Kuwait', 'Bahrain', 'Qatar', 'Oman'].includes(country)) return 4;
   if (['Turkey'].includes(country)) return 7;
@@ -40,15 +34,10 @@ function methodForCountry(country: string): number {
   return 3; // default: Egyptian
 }
 
-async function requestNotificationPermission(): Promise<boolean> {
-  const { status } = await Notifications.requestPermissionsAsync();
-  return status === 'granted';
-}
-
 export default function SettingsScreen() {
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
-  const { mode, colors, toggleTheme } = useTheme();
+  const { mode, colors } = useTheme();
   const {
     pageMode, setPageMode,
     mushafWidth, mushafHeight,
@@ -62,7 +51,7 @@ export default function SettingsScreen() {
 
   const toggleHifzNotifications = useCallback(async (val: boolean) => {
     if (val) {
-      const granted = await requestNotificationPermission();
+      const granted = await ensureNotificationPermission();
       if (!granted) { Alert.alert('الإذن مرفوض', 'يرجى تفعيل الإشعارات من إعدادات الجهاز'); return; }
     }
     updateHifz({ notificationsEnabled: val });
@@ -70,7 +59,7 @@ export default function SettingsScreen() {
 
   const togglePrayerNotifications = useCallback(async (val: boolean) => {
     if (val) {
-      const granted = await requestNotificationPermission();
+      const granted = await ensureNotificationPermission();
       if (!granted) { Alert.alert('الإذن مرفوض', 'يرجى تفعيل الإشعارات من إعدادات الجهاز'); return; }
     }
     updatePrayer({ enabled: val });
@@ -106,19 +95,6 @@ export default function SettingsScreen() {
     }
   }, [updatePrayer]);
 
-  // const handlePickMethod = useCallback(() => {
-  //   Alert.alert(
-  //     'طريقة الحساب',
-  //     'اختر الطريقة المناسبة لبلدك',
-  //     [
-  //       ...CALCULATION_METHODS.map(m => ({
-  //         text: (prayerSettings.method === m.id ? '✓  ' : '      ') + m.label,
-  //         onPress: () => updatePrayer({ method: m.id }),
-  //       })),
-  //       { text: 'إلغاء', style: 'cancel' as const },
-  //     ],
-  //   );
-  // }, [prayerSettings.method, updatePrayer]);
   const handlePickMethod = useCallback(() => {
   setMethodModalVisible(true);
 }, []);
@@ -127,7 +103,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
 
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity style={[styles.closeButton, { backgroundColor: colors.surface }]} onPress={() => router.back()}>
@@ -139,59 +115,42 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* ── المظهر ── */}
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>المظهر</Text>
-
-        <TouchableOpacity
-          style={[styles.settingItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          onPress={toggleTheme} activeOpacity={0.8}
-        >
-          <View style={[styles.settingIcon, { backgroundColor: colors.surfaceLight }]}>
-            {mode === 'dark' ? <Sun size={22} color={colors.gold} /> : <Moon size={22} color={colors.gold} />}
-          </View>
-          <View style={styles.settingContent}>
-            <Text style={[styles.settingTitle, { color: colors.text }]}>الوضع الليلي</Text>
-            <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>
-              {mode === 'dark' ? 'مفعّل' : 'غير مفعّل'}
-            </Text>
-          </View>
-          <View style={[styles.toggle, { backgroundColor: mode === 'dark' ? colors.gold : colors.surfaceLight }]}>
-            <View style={[
-              styles.toggleIndicator,
-              { backgroundColor: colors.background },
-              mode === 'dark' && styles.toggleIndicatorActive,
-            ]} />
-          </View>
-        </TouchableOpacity>
-
-        {/* ── لون صفحة المصحف ── */}
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>لون صفحة المصحف</Text>
+        {/* ── مظهر الصفحة (الوضع الفاتح/الداكن للتطبيق من القائمة الرئيسية في شاشة المصحف) ── */}
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>مظهر الصفحة</Text>
 
         <View style={[styles.settingItem, { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: 'column', alignItems: 'flex-start', gap: 16 }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={[styles.settingIcon, { backgroundColor: colors.surfaceLight }]}>
               <Eye size={22} color={colors.gold} />
             </View>
-            <Text style={[styles.settingTitle, { color: colors.text }]}>مظهر الصفحة</Text>
+            <View>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>لون صفحة المصحف</Text>
+              <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>
+                {PAGE_STYLES.find(s => s.id === pageMode)?.hint}
+              </Text>
+            </View>
           </View>
           <View style={styles.colorOptionsRow}>
-            {PAGE_COLOR_OPTIONS.map(opt => (
-              <TouchableOpacity
-                key={opt.mode}
-                onPress={() => setPageMode(opt.mode)}
-                style={[
-                  styles.colorOption,
-                  { backgroundColor: opt.bg, borderColor: pageMode === opt.mode ? colors.gold : opt.borderColor },
-                  pageMode === opt.mode && styles.colorOptionSelected,
-                ]}
-              >
-                <Text style={[styles.colorOptionText, { color: opt.textColor, fontWeight: pageMode === opt.mode ? '700' : '500' }]}>
-                  {opt.label}
-                </Text>
-                <Text style={[styles.colorPreviewChar, { color: opt.textColor }]}>بسم</Text>
-                {pageMode === opt.mode && <View style={[styles.colorOptionDot, { backgroundColor: colors.gold }]} />}
-              </TouchableOpacity>
-            ))}
+            {PAGE_STYLES.map(opt => {
+              const selected = pageMode === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  onPress={() => setPageMode(opt.id)}
+                  style={[
+                    styles.colorOption,
+                    { backgroundColor: opt.swatchBg, borderColor: selected ? colors.gold : opt.swatchBorder },
+                    selected && styles.colorOptionSelected,
+                  ]}
+                >
+                  <Text style={[styles.colorOptionText, { color: opt.swatchText, fontWeight: selected ? '700' : '500' }]}>
+                    {opt.label}
+                  </Text>
+                  <Text style={[styles.colorPreviewChar, { color: opt.swatchText }]}>بسم</Text>
+                  {selected && <View style={[styles.colorOptionDot, { backgroundColor: colors.gold }]} />}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
@@ -536,11 +495,11 @@ const styles = StyleSheet.create({
   toggleIndicator: { width: 24, height: 24, borderRadius: 12 },
   toggleIndicatorActive: { alignSelf: 'flex-end' },
   colorOptionsRow: {
-    flexDirection: 'row', gap: 12, paddingBottom: 4,
-    width: '100%', justifyContent: 'space-around',
+    flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingBottom: 4,
+    width: '100%',
   },
   colorOption: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
+    flexBasis: '47%', flexGrow: 1, alignItems: 'center', justifyContent: 'center',
     paddingVertical: 14, borderRadius: 14, borderWidth: 2, gap: 4,
   },
   colorOptionSelected: { borderWidth: 2.5 },

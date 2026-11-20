@@ -1,7 +1,7 @@
 import { PrayerName, usePrayer } from '@/contexts/PrayerContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 import { Edit3, MapPin, RotateCcw, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
@@ -98,7 +98,7 @@ export default function PrayerTimesScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
 
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>

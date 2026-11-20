@@ -10,8 +10,11 @@ export const formatPageNumber = (num: number): string => {
 
 // Helper: get page object by page number
 export const getPageImage = (page: number): MushafPage | undefined => {
-  return mushafPages.find(p => p.page === page);
+  return mushafPages[page - 1];
 };
+
+// صورة الصفحة مباشرة بالفهرس (بدلاً من البحث الخطي في 604 عنصر عند كل عرض)
+export const getMushafImage = (page: number): any => mushafPages[page - 1]?.image;
 
 export const mushafPages: MushafPage[] = [
   { page: 1, image: require('../assets/mushaf/001.webp') },
@@ -619,3 +622,22 @@ export const mushafPages: MushafPage[] = [
   { page: 603, image: require('../assets/mushaf/603.webp') },
   { page: 604, image: require('../assets/mushaf/604.webp') },
 ];
+
+
+// ── صور الوضع الليلي ──
+// تُولَّد بسكربت tools/make_night_pages.py داخل assets/mushaf_dark (001.webp … 604.webp).
+// نستخدم require.context حتى لا يفشل البناء لو لم تُولَّد الصور بعد؛ في هذه الحالة
+// يرجع getNightImage القيمة undefined ويستخدم التطبيق بديلاً داكناً مؤقتاً.
+const nightContext = require.context('../assets/mushaf_dark', false, /\.webp$/);
+const nightKeys = new Set<string>(nightContext.keys());
+
+export const hasNightPages = nightKeys.size > 0;
+
+export const getNightImage = (page: number): any => {
+  const key = `./${formatPageNumber(page)}.webp`;
+  return nightKeys.has(key) ? nightContext(key) : undefined;
+};
+
+/** مصدر صورة الصفحة المناسب للنمط: ليلي إن توفر، وإلا الصورة الأصلية. */
+export const getPageSource = (page: number, night: boolean): any =>
+  (night ? getNightImage(page) : undefined) ?? getMushafImage(page);

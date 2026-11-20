@@ -31,7 +31,7 @@ import {
   Circle,
   Star,
 } from 'lucide-react-native';
-import { StatusBar } from 'expo-status-bar';
+import SystemBars from '@/components/SystemBars';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useHifz, JUZ_PAGES } from '@/contexts/HifzContext';
 
@@ -82,7 +82,7 @@ export default function HifzScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <SystemBars light={mode === 'dark'} />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: c.surface, borderBottomColor: c.border }]}>
