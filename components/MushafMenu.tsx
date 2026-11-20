@@ -15,9 +15,9 @@ type Props = {
 const ITEMS = [
   { label: 'الأذكار', route: '/azkar', Icon: Moon },
   { label: 'الانتقال إلى صفحة', route: '/page-jump', Icon: Book },
-  { label: 'المزيد', route: '/more', Icon: MoreHorizontal },
   { label: 'الإعدادات', route: '/settings', Icon: Settings },
   { label: 'برنامج تحفيظ', route: '/hifz', Icon: Save },
+  
 ] as const;
 
 function MushafMenu({ visible, onClose, top }: Props) {
@@ -57,6 +57,11 @@ function MushafMenu({ visible, onClose, top }: Props) {
           <TouchableOpacity style={styles.item} onPress={() => go('/bookmarks')}>
             <Bookmark size={20} color={colors.text} />
             <Text style={[styles.text, { color: colors.text }]}>العلامات المرجعية</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.item} onPress={() => go('/more')}>
+            <MoreHorizontal size={20} color={colors.text} />
+            <Text style={[styles.text, { color: colors.text }]}>المزيد</Text>
           </TouchableOpacity>
         </View>
       </Pressable>
